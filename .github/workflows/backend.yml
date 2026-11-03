@@ -53,13 +53,13 @@ jobs:
         run: |
           # «перец» для паролей входа создаётся один раз и больше не меняется
           if ! supabase secrets list --project-ref "$PROJECT_REF" | grep -q AUTH_PEPPER; then
-            supabase secrets set --project-ref "$PROJECT_REF" AUTH_PEPPER="$(openssl rand -hex 24)"
+            supabase secrets set --yes --project-ref "$PROJECT_REF" AUTH_PEPPER="$(openssl rand -hex 24)"
           fi
-          if [ -n "$BOT_TOKEN" ]; then supabase secrets set --project-ref "$PROJECT_REF" BOT_TOKEN="$BOT_TOKEN"; else echo "::warning::Нет секрета BOT_TOKEN — вход из Telegram и сообщения бота не заработают"; fi
-          if [ -n "${TG_CHANNEL:-}" ]; then supabase secrets set --project-ref "$PROJECT_REF" TG_CHANNEL="$TG_CHANNEL"; fi
+          if [ -n "$BOT_TOKEN" ]; then supabase secrets set --yes --project-ref "$PROJECT_REF" BOT_TOKEN="$BOT_TOKEN"; else echo "::warning::Нет секрета BOT_TOKEN — вход из Telegram и сообщения бота не заработают"; fi
+          if [ -n "${TG_CHANNEL:-}" ]; then supabase secrets set --yes --project-ref "$PROJECT_REF" TG_CHANNEL="$TG_CHANNEL"; fi
       - name: Функции
         run: |
-          for f in auth check-sub notify; do supabase functions deploy "$f" --project-ref "$PROJECT_REF" --no-verify-jwt; done
+          for f in auth check-sub notify; do supabase functions deploy "$f" --yes --project-ref "$PROJECT_REF" --no-verify-jwt; done
       - name: Ключ сервиса
         run: ./scripts/supabase-keys.sh "$PROJECT_REF"
       - name: Банк вопросов
