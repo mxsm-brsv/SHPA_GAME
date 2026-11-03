@@ -79,7 +79,7 @@ export class OnlineBackend implements Backend {
 
   async loginFio(p: LoginParams) {
     const tg = telegram();
-    return this.auth({ initData: tg?.initData || undefined, fio: p.fio, group: p.group, staffCode: p.staffCode || undefined, deviceKey: deviceKey(), startParam: tg?.initDataUnsafe.start_param ?? '' });
+    return this.auth({ initData: tg?.initData || undefined, fio: p.fio, group: p.group, staffCode: p.staffCode?.trim().toUpperCase() || undefined, deviceKey: deviceKey(), startParam: tg?.initDataUnsafe.start_param ?? '' });
   }
 
   async loginTester(): Promise<LoginResult> { return { state: null, needLogin: true, error: 'Тестовый вход есть только в демо-сборке' }; }

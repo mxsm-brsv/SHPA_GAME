@@ -72,7 +72,7 @@ Deno.serve(async (req) => {
     const { data, error } = await admin.rpc('roster_login', {
       p_fio: str(body.fio, 120) || null,
       p_group: str(body.group, 24) || null,
-      p_staff_code: str(body.staffCode, 40) || null,
+      p_staff_code: str(body.staffCode, 40)?.toUpperCase() || null,
       p_tg_id: tgId,
       p_device: device ? await sha(`device:${device}`) : null,
       p_key: key,

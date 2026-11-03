@@ -1,0 +1,53 @@
+# Проверка живого проекта: база отвечает, банк загружен, функции работают, сайт открыт, бот и канал настроены.
+# Запуск: Actions → Smoke test → Run workflow. Секретов в лог не выводит.
+name: Smoke test
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/smoke.yml']
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Настройки
+        run: |
+          grep -E '^[A-Z_]+=' deploy.env >> "$GITHUB_ENV"
+          source <(grep -E '^[A-Z_]+=' deploy.env)
+          echo "PROJECT_REF=$(echo "$SUPABASE_URL" | sed -nE 's#^https://([a-z0-9]+)\.supabase\.co/?$#\1#p')" >> "$GITHUB_ENV"
+      - name: Ключ anon
+        if: env.SUPABASE_ANON_KEY == ''
+        run: ./scripts/supabase-keys.sh "$PROJECT_REF"
+      - name: Проверки
+        run: |
+          H=(-H "apikey: $SUPABASE_ANON_KEY" -H "content-type: application/json")
+          if [ "$(echo "$SUPABASE_ANON_KEY" | tr -cd '.' | wc -c)" = "2" ]; then H+=(-H "authorization: Bearer $SUPABASE_ANON_KEY"); fi
+          rpc() { curl -sS -X POST "$SUPABASE_URL/rest/v1/rpc/$1" "${H[@]}" -d "${2:-{\}}"; }
+          echo "ping (вопросов в базе): $(rpc ping)"
+          echo "настройки: $(rpc get_config)"
+          echo "банк в «Подготовке»: $(rpc prep_bank | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const a=JSON.parse(s);console.log(Array.isArray(a)?a.length+" вопросов":s.slice(0,200))}catch{console.log(s.slice(0,200))}})')"
+          echo "тест по коду (несуществующий): $(rpc get_shared_test '{"p_code":"NOPE00"}')"
+          echo "вход посторонним: $(curl -sS -X POST "$SUPABASE_URL/functions/v1/auth" "${H[@]}" -d '{"fio":"Проверкин Тест","group":"ЭР-00-00","deviceKey":"smoke-test"}')"
+          echo "check-sub без входа: $(curl -sS -o /dev/null -w '%{http_code}' -X POST "$SUPABASE_URL/functions/v1/check-sub" "${H[@]}" -d '{}') (ждём 401)"
+          echo "notify без входа: $(curl -sS -o /dev/null -w '%{http_code}' -X POST "$SUPABASE_URL/functions/v1/notify" "${H[@]}" -d '{"submission":1}') (ждём 403)"
+          OWNER="${GITHUB_REPOSITORY%%/*}"; REPO="${GITHUB_REPOSITORY#*/}"
+          echo "сайт игры: $(curl -sS -o /dev/null -w '%{http_code}' "https://${OWNER,,}.github.io/$REPO/")"
+      - name: Бот и канал
+        if: env.BOT_TOKEN != ''
+        run: |
+          tg() { curl -sS "https://api.telegram.org/bot$BOT_TOKEN/$1" "${@:2}"; }
+          ME=$(tg getMe)
+          echo "бот: $(echo "$ME" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);console.log(j.ok?"@"+j.result.username:"токен не подошёл: "+j.description)})')"
+          ID=$(echo "$ME" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);console.log(j.ok?j.result.id:"")})')
+          if [ -n "${TG_CHANNEL:-}" ] && [ -n "$ID" ]; then
+            echo "бот в канале @$TG_CHANNEL: $(tg getChatMember -d chat_id=@$TG_CHANNEL -d user_id=$ID | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);console.log(j.ok?j.result.status+(j.result.status==="administrator"?" — проверка подписки будет работать":" — сделайте бота админом канала"):"нет доступа: "+j.description)})')"
+          fi
+          echo "кнопка меню: $(tg getChatMenuButton | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);const b=j.result||{};console.log(b.type==="web_app"?b.text+" → "+b.web_app.url:"не настроена ("+b.type+")")})')"
