@@ -36,7 +36,7 @@ export function renderLogin(app: App, error?: string) {
       <label class="col" style="gap:4px" data-grp><span class="small">Учебная группа</span>
         <input class="input-ans" data-group placeholder="Например, ЭР-23-24" autocomplete="off" autocapitalize="characters" maxlength="16"></label>
       <label class="col hidden" style="gap:4px" data-stf><span class="small">Код организатора</span>
-        <input class="input-ans" data-scode placeholder="Выдают админы" autocomplete="off" autocapitalize="characters" maxlength="24"></label>
+        <input class="input-ans" data-scode placeholder="Выдают админы" autocomplete="off" autocapitalize="characters" maxlength="60"></label>
       <label class="row small" style="gap:8px"><input type="checkbox" data-staff> Я из состава (организатор)</label>
       <div class="small err ${error ? '' : 'hidden'}" data-err>${esc(error ?? '')}</div>
       <button class="btn btn-gold btn-block" data-act="go">Войти</button>

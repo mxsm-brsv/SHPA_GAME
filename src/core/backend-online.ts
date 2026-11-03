@@ -21,6 +21,9 @@ interface MeRow { id: string; username: string; faction: FactionId | null; ratin
 interface ClanRow { faction: FactionId; xp: Record<BuildingId, number>; members: ClanView['members']; limit?: number }
 interface TaskSync { done: Record<string, number>; pending: Record<string, number>; subs: MySubmission[] }
 
+/** Код организатора: регистр, лишние пробелы и «ё» не важны («секретный  код» = «СЕКРЕТНЫЙ КОД»). */
+const normStaffCode = (c: string) => c.trim().replace(/\s+/g, ' ').toUpperCase().replace(/Ё/g, 'Е');
+
 function deviceKey() {
   try {
     let k = localStorage.getItem('pbgame.device');
@@ -79,7 +82,7 @@ export class OnlineBackend implements Backend {
 
   async loginFio(p: LoginParams) {
     const tg = telegram();
-    return this.auth({ initData: tg?.initData || undefined, fio: p.fio, group: p.group, staffCode: p.staffCode?.trim().toUpperCase() || undefined, deviceKey: deviceKey(), startParam: tg?.initDataUnsafe.start_param ?? '' });
+    return this.auth({ initData: tg?.initData || undefined, fio: p.fio, group: p.group, staffCode: p.staffCode ? normStaffCode(p.staffCode) || undefined : undefined, deviceKey: deviceKey(), startParam: tg?.initDataUnsafe.start_param ?? '' });
   }
 
   async loginTester(): Promise<LoginResult> { return { state: null, needLogin: true, error: 'Тестовый вход есть только в демо-сборке' }; }

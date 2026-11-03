@@ -123,7 +123,7 @@ export class DemoBackend implements Backend {
     const t = normFio(p.fio).split(' ').filter(Boolean);
     if (t.length < 2) return { state: null, error: 'Напиши фамилию и имя (можно с отчеством)' };
     const gd = groupDigits(p.group);
-    const staffCode = (p.staffCode ?? '').trim().toUpperCase();
+    const staffCode = (p.staffCode ?? '').trim().replace(/\s+/g, ' ').toUpperCase().replace(/Ё/g, 'Е');
     // организатор: фамилия+имя без группы и код организатора
     if (staffCode) {
       if (staffCode !== DEMO_STAFF_CODE) return { state: null, error: 'Неверный код организатора' };
