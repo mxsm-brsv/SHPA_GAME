@@ -4,7 +4,7 @@ name: Deploy backend
 on:
   push:
     branches: [main]
-    paths: ['supabase/**', 'content/**', 'deploy.env', 'scripts/seed-questions.mjs', 'scripts/supabase-keys.sh', '.github/workflows/backend.yml']
+    paths: ['supabase/**', 'content/**', 'deploy.env', 'scripts/seed-questions.mjs', 'scripts/supabase-*.sh', '.github/workflows/backend.yml']
   workflow_dispatch:
 
 jobs:
@@ -40,10 +40,15 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: Связать проект
-        run: supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+        run: supabase link --project-ref "$PROJECT_REF"
+      - name: Подключение к базе (IPv4 через пулер)
+        run: ./scripts/supabase-dburl.sh "$PROJECT_REF"
       - name: Миграции базы
-        run: supabase db push --remote --yes --password "$SUPABASE_DB_PASSWORD"
+        run: supabase db push --db-url "$DB_URL" --yes
       - name: Секреты функций
         run: |
           # «перец» для паролей входа создаётся один раз и больше не меняется
@@ -55,9 +60,6 @@ jobs:
       - name: Функции
         run: |
           for f in auth check-sub notify; do supabase functions deploy "$f" --project-ref "$PROJECT_REF" --no-verify-jwt; done
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
       - name: Ключ сервиса
         run: ./scripts/supabase-keys.sh "$PROJECT_REF"
       - name: Банк вопросов
