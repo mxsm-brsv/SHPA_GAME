@@ -27,7 +27,7 @@ export function pointMarker(p: MapPoint, owner: FactionId | null, opts: { shield
   </g>`;
 }
 
-export function ratushaMarker(fid: FactionId, level: number, trophies: number, mine: boolean) {
+export function ratushaMarker(fid: FactionId, level: number, trophies: number, mine: boolean, room?: string) {
   const f = factionById(fid);
   const s = 0.85 + Math.min(10, level) * 0.04;
   return `<g class="mk" transform="scale(${s})">
@@ -45,6 +45,7 @@ export function ratushaMarker(fid: FactionId, level: number, trophies: number, m
     <g transform="translate(26 -2)"><circle r="11" fill="#ffc83d" stroke="#15173d" stroke-width="2"/><text y="4" text-anchor="middle" font-size="12" font-family="Russo One, Rubik" fill="#3a2a00">${level}</text></g>
     ${trophies ? `<g transform="translate(-28 -2)"><circle r="10" fill="#b26bff" stroke="#fff" stroke-width="1.5"/><text y="4" text-anchor="middle" font-size="11" font-weight="800" font-family="Rubik" fill="#fff">${trophies}</text></g>` : ''}
     <text y="54" text-anchor="middle" class="mkl" style="fill:${f.color === '#0d0d6f' ? '#9aa3ff' : '#fff'}">${f.short}</text>
+    ${room ? `<text y="68" text-anchor="middle" class="mkl" style="font-size:11px;fill:#ffd76a">${room}</text>` : ''}
   </g>`;
 }
 

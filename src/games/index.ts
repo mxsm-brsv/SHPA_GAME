@@ -13,10 +13,13 @@ import { openBlocks } from './blocks';
 import { openMerge } from './merge';
 import { openCrossword } from './crossword';
 import { openCategories } from './categories';
+import { openStack } from './stack';
+import { openFlappy } from './flappy';
 
 const OPEN: Record<GameId, (app: App, ctx?: PlayCtx) => void> = {
   fever: openFever, ring: openRing, runner: openRunner, stamp: openStamp, alias: openAlias,
   wordle: openWordle, bus: openBus, blocks: openBlocks, merge: openMerge, crossword: openCrossword, categories: openCategories,
+  stack: openStack, flappy: openFlappy,
 };
 
 export function openGame(app: App, id: GameId, ctx?: PlayCtx) {

@@ -11,3 +11,7 @@ verify_jwt = false
 
 [functions.notify]
 verify_jwt = false
+
+# Вебхук Telegram: подлинность проверяется секретом в заголовке (X-Telegram-Bot-Api-Secret-Token)
+[functions.bot]
+verify_jwt = false

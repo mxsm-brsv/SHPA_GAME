@@ -1,5 +1,5 @@
 // Общая карта: Лефортово и кампус МЭИ. Ратуши ПБ, спорные точки, стычки, внешние мероприятия.
-import { CONTESTED, EVENT_SQUAD, MAP_EVENTS, MAP_POINTS, RATUSHA_SPOTS, type MapEvent } from '../../config/map';
+import { CAMPUS_HOME, CONTESTED, EVENT_SQUAD, MAP_EVENTS, MAP_POINTS, RATUSHA_SPOTS, type MapEvent } from '../../config/map';
 import { PLAYABLE_FACTIONS, factionById, type FactionId } from '../../config/factions';
 import { gameById } from '../../config/minigames';
 import { TEST_MODE, TEST_ROUND_MINUTES } from '../../config/test';
@@ -42,7 +42,7 @@ export function renderMap(app: App) {
     <div class="map-holder" data-map></div>
     <div class="map-hud">
       <div class="row" style="gap:8px">
-        <div class="map-chip grow"><b>Карта · Лефортово</b><span class="small muted" data-round></span></div>
+        <div class="map-chip grow"><b>Карта · кампус МЭИ</b><span class="small muted" data-round></span></div>
         <button class="map-btn" data-act="standings" aria-label="Зачёт">${icon('trophy', 20)}</button>
         <button class="map-btn" data-act="report" aria-label="Отчёт раунда">${icon('swords', 20)}</button>
       </div>
@@ -70,7 +70,7 @@ export function renderMap(app: App) {
   const flevel = (f: FactionId) => f === s.faction ? ratushaLevel(s) : (factions.find((x) => x.faction === f)?.ratusha ?? 1);
   const neutral = s.faction === 'profkom';
   /** Точка «домой» на карте: своя ратуша, у профкома — центр кампуса. */
-  const homeXy = (): [number, number] => (s.faction && s.faction !== 'profkom' ? RATUSHA_SPOTS[s.faction as Exclude<FactionId, 'profkom'>].xy : [640, 700]);
+  const homeXy = (): [number, number] => (s.faction && s.faction !== 'profkom' ? RATUSHA_SPOTS[s.faction as Exclude<FactionId, 'profkom'>].xy : CAMPUS_HOME);
 
   const eventLabel = (e: MapEvent) => {
     if (world?.event?.id === e.id) return `идёт · ${mmss(world.event.endAt - Date.now())}`;
@@ -82,17 +82,18 @@ export function renderMap(app: App) {
   // ---------- Слой объектов ----------
   const overlaySvg = () => {
     const o = myOrder();
-    const pts = CONTESTED.map((p) => `<g transform="translate(${p.xy[0]} ${p.xy[1]})" data-sel="pt:${p.id}">${pointMarker(p, owner(p.id), { shield: shielded(p.id), target: o?.point === p.id ? o.kind : null, selected: sel === `pt:${p.id}` })}</g>`).join('');
+    // .mks — масштаб метки: на схеме она держит постоянный размер на экране при любом приближении
+    const pts = CONTESTED.map((p) => `<g transform="translate(${p.xy[0]} ${p.xy[1]})" data-sel="pt:${p.id}"><g class="mks">${pointMarker(p, owner(p.id), { shield: shielded(p.id), target: o?.point === p.id ? o.kind : null, selected: sel === `pt:${p.id}` })}</g></g>`).join('');
     const rts = PLAYABLE_FACTIONS.map((f) => {
       const sp = RATUSHA_SPOTS[f.id as Exclude<FactionId, 'profkom'>];
-      return `<g transform="translate(${sp.xy[0]} ${sp.xy[1]})" data-sel="rt:${f.id}">${ratushaMarker(f.id, flevel(f.id), world?.trophies[f.id]?.length ?? 0, f.id === s.faction)}</g>`;
+      return `<g transform="translate(${sp.xy[0]} ${sp.xy[1]})" data-sel="rt:${f.id}"><g class="mks">${ratushaMarker(f.id, flevel(f.id), world?.trophies[f.id]?.length ?? 0, f.id === s.faction, sp.room)}</g></g>`;
     }).join('');
-    const evs = MAP_EVENTS.map((e) => `<g transform="translate(${e.xy[0]} ${e.xy[1]})" data-sel="ev:${e.id}">${eventMarker(e, world?.event?.id === e.id, eventLabel(e))}</g>`).join('');
+    const evs = MAP_EVENTS.map((e) => `<g transform="translate(${e.xy[0]} ${e.xy[1]})" data-sel="ev:${e.id}"><g class="mks">${eventMarker(e, world?.event?.id === e.id, eventLabel(e))}</g></g>`).join('');
     // стрелка приказа от ратуши к цели
     let arrow = '';
     if (o && s.faction && !neutral) {
       const from = homeXy(), to = pointById(o.point).xy;
-      arrow = `<path d="M${from[0]} ${from[1]} Q ${(from[0] + to[0]) / 2} ${Math.min(from[1], to[1]) - 80} ${to[0]} ${to[1]}" fill="none" stroke="${o.kind === 'attack' ? '#ff5a5f' : '#45d483'}" stroke-width="5" stroke-dasharray="12 9" opacity=".9"><animate attributeName="stroke-dashoffset" from="42" to="0" dur="1s" repeatCount="indefinite"/></path>`;
+      arrow = `<path d="M${from[0]} ${from[1]} Q ${(from[0] + to[0]) / 2} ${Math.min(from[1], to[1]) - Math.max(40, Math.hypot(to[0] - from[0], to[1] - from[1]) * 0.35)} ${to[0]} ${to[1]}" fill="none" stroke="${o.kind === 'attack' ? '#ff5a5f' : '#45d483'}" stroke-width="4" stroke-dasharray="10 8" opacity=".9"><animate attributeName="stroke-dashoffset" from="42" to="0" dur="1s" repeatCount="indefinite"/></path>`;
     }
     return arrow + rts + pts + evs;
   };
@@ -102,7 +103,7 @@ export function renderMap(app: App) {
     const o = myOrder();
     const list = [
       ...CONTESTED.map((p) => ({ key: `pt:${p.id}`, geo: moved[`pt:${p.id}`] ?? p.geo, html: wrap(pointMarker(p, owner(p.id), { shield: shielded(p.id), target: o?.point === p.id ? o.kind : null, selected: sel === `pt:${p.id}` }), 110, 110, 56), onClick: () => select(`pt:${p.id}`) })),
-      ...PLAYABLE_FACTIONS.map((f) => { const sp = RATUSHA_SPOTS[f.id as Exclude<FactionId, 'profkom'>]; return { key: `rt:${f.id}`, geo: moved[`rt:${f.id}`] ?? sp.geo, html: wrap(ratushaMarker(f.id, flevel(f.id), world?.trophies[f.id]?.length ?? 0, f.id === s.faction), 110, 150, 92), onClick: () => select(`rt:${f.id}`) }; }),
+      ...PLAYABLE_FACTIONS.map((f) => { const sp = RATUSHA_SPOTS[f.id as Exclude<FactionId, 'profkom'>]; return { key: `rt:${f.id}`, geo: moved[`rt:${f.id}`] ?? sp.geo, html: wrap(ratushaMarker(f.id, flevel(f.id), world?.trophies[f.id]?.length ?? 0, f.id === s.faction, sp.room), 110, 160, 92), onClick: () => select(`rt:${f.id}`) }; }),
       ...MAP_EVENTS.map((e) => ({ key: `ev:${e.id}`, geo: moved[`ev:${e.id}`] ?? e.geo, html: wrap(eventMarker(e, world?.event?.id === e.id, eventLabel(e)), 150, 100, 36), onClick: () => select(`ev:${e.id}`) })),
       ...MAP_POINTS.filter((p) => !p.contested).map((p) => ({ key: `lm:${p.id}`, geo: moved[`lm:${p.id}`] ?? p.geo, html: '', onClick: () => {} })),
     ].filter((m) => m.html);
@@ -164,7 +165,7 @@ export function renderMap(app: App) {
     const tr = world?.trophies[fid] ?? [];
     const pts = CONTESTED.filter((p) => owner(p.id) === fid);
     sheet.innerHTML = `
-      <div class="row">${totemSvg(f, 44)}<div class="grow"><b>Ратуша ${f.short} · ур. ${flevel(fid)}</b><div class="small muted">${r ? `${r.players} игроков · ${fmt(r.rating)} баллов · ` : ''}${fmt(world?.influence[fid] ?? 0)} влияния</div></div><button class="btn btn-ghost btn-sm" data-act="close" aria-label="Закрыть">✕</button></div>
+      <div class="row">${totemSvg(f, 44)}<div class="grow"><b>Ратуша ${f.short} · ур. ${flevel(fid)}</b><div class="small muted">Профбюро: ауд. ${esc(RATUSHA_SPOTS[fid as Exclude<FactionId, 'profkom'>]?.room ?? '—')} · ${r ? `${r.players} игроков · ${fmt(r.rating)} баллов · ` : ''}${fmt(world?.influence[fid] ?? 0)} влияния</div></div><button class="btn btn-ghost btn-sm" data-act="close" aria-label="Закрыть">✕</button></div>
       <div class="small" style="margin-top:6px"><b>${esc(f.perk.name)}:</b> ${esc(f.perk.text)}</div>
       <div class="small muted" style="margin-top:4px">Точки: ${pts.length ? pts.map((p) => esc(p.short)).join(', ') : 'пока нет'}${tr.length ? ` · трофеи: ${tr.map(esc).join(', ')}` : ''}</div>`;
   };
@@ -244,7 +245,7 @@ export function renderMap(app: App) {
     report: () => openReport(),
     zin: () => drawn?.zoomBy(1.3),
     zout: () => drawn?.zoomBy(1 / 1.3),
-    home: () => { if (drawn) drawn.focus(homeXy()); },
+    home: () => { if (drawn) drawn.focus(homeXy(), 4.2); },
     calib: async () => {
       if (!ymap) return;
       if (!calibrate) {
@@ -284,7 +285,7 @@ export function renderMap(app: App) {
   const startDrawn = () => {
     drawn = createDrawnMap(holder, (v) => select(v));
     redraw();
-    setTimeout(() => drawn?.focus(homeXy()), 50);
+    setTimeout(() => drawn?.focus(homeXy(), 4.2), 50);
   };
   if (yandexKey()) {
     createYandexMap(holder).then((y) => { ymap = y; redraw(); }).catch(() => startDrawn());

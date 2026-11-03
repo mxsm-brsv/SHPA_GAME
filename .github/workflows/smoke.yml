@@ -1,12 +1,12 @@
 # Проверка живого проекта: база отвечает, банк загружен, функции работают, сайт открыт, бот и канал настроены.
-# Заодно настраивает бота: кнопка меню «Играть» с адресом игры и описание. Секретов в лог не выводит.
+# Заодно настраивает бота (scripts/bot-setup.sh): имя «ШПА», описание, команды, кнопка «Играть», вебхук. Секретов в лог не выводит.
 # Запуск: Actions → Smoke test → Run workflow.
 name: Smoke test
 on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['.github/workflows/smoke.yml']
+    paths: ['.github/workflows/smoke.yml', 'scripts/bot-setup.sh']
 
 jobs:
   smoke:
@@ -39,20 +39,21 @@ jobs:
           echo "вход посторонним: $(curl -sS -X POST "$SUPABASE_URL/functions/v1/auth" "${H[@]}" -d '{"fio":"Проверкин Тест","group":"ЭР-00-00","deviceKey":"smoke-test"}')"
           echo "check-sub без входа: $(curl -sS -o /dev/null -w '%{http_code}' -X POST "$SUPABASE_URL/functions/v1/check-sub" "${H[@]}" -d '{}') (ждём 401)"
           echo "notify без входа: $(curl -sS -o /dev/null -w '%{http_code}' -X POST "$SUPABASE_URL/functions/v1/notify" "${H[@]}" -d '{"submission":1}') (ждём 403)"
+          echo "бот без секрета: $(curl -sS -o /dev/null -w '%{http_code}' -X POST "$SUPABASE_URL/functions/v1/bot" -d '{}') (ждём 403)"
+          echo "мерч в магазине: $(rpc merch_list | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s).length+" товаров")}catch{console.log(s.slice(0,120))}})')"
           OWNER="${GITHUB_REPOSITORY%%/*}"; REPO="${GITHUB_REPOSITORY#*/}"
           echo "сайт игры: $(curl -sS -o /dev/null -w '%{http_code}' "https://${OWNER,,}.github.io/$REPO/")"
       - name: Бот и канал
         if: env.BOT_TOKEN != ''
         run: |
+          OWNER="${GITHUB_REPOSITORY%%/*}"; REPO="${GITHUB_REPOSITORY#*/}"; export GAME_URL="https://${OWNER,,}.github.io/$REPO/"
+          ./scripts/bot-setup.sh
           tg() { curl -sS "https://api.telegram.org/bot$BOT_TOKEN/$1" "${@:2}"; }
-          OWNER="${GITHUB_REPOSITORY%%/*}"; REPO="${GITHUB_REPOSITORY#*/}"; GAME="https://${OWNER,,}.github.io/$REPO/"
-          echo "кнопка меню → $GAME: $(tg setChatMenuButton -H "content-type: application/json" -d "{\"menu_button\":{\"type\":\"web_app\",\"text\":\"Играть\",\"web_app\":{\"url\":\"$GAME\"}}}")"
-          tg setMyShortDescription --data-urlencode "short_description=Игра Школы профсоюзного актива МЭИ: задания, подготовка к конкурсу, битва профбюро" >/dev/null
-          tg setMyDescription --data-urlencode "description=Игра выезда ШПА МЭИ. Нажми «Играть», войди по ФИО и группе — твоё профбюро подставится само. Задания, QR-отметки на блоках, подготовка к правовому конкурсу, мерч за баллы." >/dev/null
           ME=$(tg getMe)
-          echo "бот: $(echo "$ME" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);console.log(j.ok?"@"+j.result.username:"токен не подошёл: "+j.description)})')"
+          echo "бот: $(echo "$ME" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);console.log(j.ok?"@"+j.result.username+" «"+j.result.first_name+"»":"токен не подошёл: "+j.description)})')"
           ID=$(echo "$ME" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);console.log(j.ok?j.result.id:"")})')
           if [ -n "${TG_CHANNEL:-}" ] && [ -n "$ID" ]; then
             echo "бот в канале @$TG_CHANNEL: $(tg getChatMember -d chat_id=@$TG_CHANNEL -d user_id=$ID | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);console.log(j.ok?j.result.status+(j.result.status==="administrator"?" — проверка подписки будет работать":" — сделайте бота админом канала"):"нет доступа: "+j.description)})')"
           fi
           echo "кнопка меню: $(tg getChatMenuButton | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);const b=j.result||{};console.log(b.type==="web_app"?b.text+" → "+b.web_app.url:"не настроена ("+b.type+")")})')"
+          echo "картинка /start: $(curl -sS -o /dev/null -w '%{http_code}' "${GAME_URL}bot/start.jpg")"

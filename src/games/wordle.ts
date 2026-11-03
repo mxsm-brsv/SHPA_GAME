@@ -20,13 +20,17 @@ export function openWordle(app: App, ctx?: PlayCtx) {
   const rows: string[] = [];
   let cur = '';
   let over = false;
-  const board = el('<div class="wd-board"></div>');
-  const draw = () => {
-    board.innerHTML = Array.from({ length: 6 }, (_, r) => {
-      const word = r < rows.length ? rows[r] : r === rows.length ? cur : '';
-      const res = r < rows.length ? score(rows[r]) : [];
-      return `<div class="wd-row">${Array.from({ length: 5 }, (_, i) => `<div class="wd-c ${res[i] ?? (word[i] ? 'fill' : '')}">${word[i] ?? ''}</div>`).join('')}</div>`;
-    }).join('');
+  // доска строится один раз — клетки меняются по месту, поэтому анимации не перезапускаются
+  const board = el(`<div class="wd-board">${Array.from({ length: 6 }, () => `<div class="wd-row">${'<div class="wd-c"></div>'.repeat(5)}</div>`).join('')}</div>`);
+  const rowEls = [...board.querySelectorAll<HTMLElement>('.wd-row')];
+  const cellsOf = (r: number) => [...rowEls[r].querySelectorAll<HTMLElement>('.wd-c')];
+  const drawCur = () => {
+    const r = rows.length;
+    if (r >= 6) return;
+    cellsOf(r).forEach((c, i) => { const ch = cur[i] ?? ''; if (c.textContent !== ch) { c.textContent = ch; c.className = `wd-c ${ch ? 'fill' : ''}`; } });
+  };
+  const reveal = (r: number, w: string, res: ('ok' | 'near' | 'no')[]) => {
+    cellsOf(r).forEach((c, i) => { c.textContent = w[i]; c.style.setProperty('--d', `${i * 0.13}s`); c.className = `wd-c ${res[i]} rev`; });
   };
   const score = (w: string): ('ok' | 'near' | 'no')[] => {
     const res: ('ok' | 'near' | 'no')[] = Array(5).fill('no');
@@ -35,22 +39,33 @@ export function openWordle(app: App, ctx?: PlayCtx) {
     for (let i = 0; i < 5; i++) if (res[i] !== 'ok' && left[w[i]]) { res[i] = 'near'; left[w[i]]--; }
     return res;
   };
+  const REVEAL_MS = 1100;
   const kb = keyboard((k) => {
     if (over) return;
     if (k === '⌫') cur = cur.slice(0, -1);
     else if (k === '↵') {
-      if (cur.length < 5) { toast('Нужно 5 букв', 'bad'); return; }
-      rows.push(cur);
-      score(cur).forEach((c, i) => kb.mark(cur[i], c));
-      const won = cur === target;
+      if (cur.length < 5) {
+        const row = rowEls[rows.length];
+        row.classList.remove('shake'); void row.offsetWidth; row.classList.add('shake');
+        toast('Нужно 5 букв', 'bad'); haptic('bad'); return;
+      }
+      const w = cur, res = score(w), r = rows.length;
+      rows.push(w);
+      reveal(r, w, res);
+      setTimeout(() => res.forEach((c, i) => kb.mark(w[i], c)), REVEAL_MS - 200);
+      const won = w === target;
       cur = '';
       haptic(won ? 'ok' : 'tap');
-      if (won || rows.length === 6) { draw(); finish(won); return; }
+      if (won || rows.length === 6) {
+        over = true;
+        if (won) setTimeout(() => { cellsOf(r).forEach((c, i) => { c.classList.remove('rev'); c.style.setProperty('--d', `${i * 0.08}s`); }); rowEls[r].classList.add('win'); }, REVEAL_MS);
+        setTimeout(() => finish(won), REVEAL_MS);
+        return;
+      }
     } else if (cur.length < 5) cur += norm(k);
-    draw();
+    drawCur();
   }, { enter: 'ОК' });
   const finish = async (won: boolean) => {
-    over = true;
     const tries = rows.length;
     const value = daily && won ? Math.max(10, 30 - (tries - 1) * 4) : 0;
     if (daily) s.tasks.done[dailyKey] = 1;
@@ -59,9 +74,8 @@ export function openWordle(app: App, ctx?: PlayCtx) {
     setTimeout(() => showResult(app, sh, {
       title: won ? `Угадано за ${tries}!` : 'Не угадано', good: won, score: sc, lines: [`Слово: ${target}`, daily ? '' : 'Тренировка — без баллов'].filter(Boolean),
       got, value, ctx, again: () => { app.closeOverlay(); openWordle(app, ctx); },
-    }), 700);
+    }), 900);
   };
   sh.body.appendChild(board);
   sh.body.appendChild(kb.el);
-  draw();
 }

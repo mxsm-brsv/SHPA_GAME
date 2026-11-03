@@ -1,8 +1,13 @@
-// Нарисованная карта: SVG-мир 1000×1300 с перетаскиванием и масштабом (пальцами, колесом, кнопками).
+// Нарисованная карта: SVG-мир по настоящему плану (1 единица = 1 метр) с перетаскиванием и масштабом
+// (пальцами, колесом, кнопками). Метки игры держат постоянный размер на экране — при приближении не раздуваются.
 import { mapBaseSvg } from '../art/mapArt';
 import { MARKER_CSS } from '../art/mapMarkers';
+import { CAMPUS } from './campusData';
 
-const W = 1000, H = 1300;
+const W = CAMPUS.W, H = CAMPUS.H;
+/** При такой ширине видимой области метки рисуются в своём «родном» размере. */
+const MK_REF = 640;
+const MIN_W = 170;
 let baseCache = '';
 
 export interface DrawnView {
@@ -14,13 +19,21 @@ export interface DrawnView {
 
 export function createDrawnMap(container: HTMLElement, onSelect: (sel: string) => void): DrawnView {
   if (!baseCache) baseCache = mapBaseSvg();
-  container.innerHTML = `<svg class="drawn-map" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Карта Лефортово и кампуса МЭИ">
+  container.innerHTML = `<svg class="drawn-map" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Карта кампуса МЭИ и Лефортово">
     <style>${MARKER_CSS}</style><g data-base>${baseCache}</g><g data-overlay></g></svg>`;
   const svg = container.querySelector('svg')!;
   const overlay = svg.querySelector('[data-overlay]')!;
 
   // видимая область в координатах мира
-  const vb = { x: 300, y: 400, w: 470, h: 470 };
+  const vb = { x: 820, y: 860, w: 420, h: 420 };
+  let mk = 0;
+  /** Масштаб меток: обратно пропорционален приближению, в разумных пределах. */
+  const scaleMarkers = (force = false) => {
+    const k = Math.max(0.28, Math.min(1.5, vb.w / MK_REF));
+    if (!force && Math.abs(k - mk) < 0.004) return;
+    mk = k;
+    overlay.querySelectorAll('.mks').forEach((g) => g.setAttribute('transform', `scale(${k.toFixed(3)})`));
+  };
   const fit = () => {
     const r = container.getBoundingClientRect();
     const aspect = r.width / Math.max(1, r.height);
@@ -29,14 +42,14 @@ export function createDrawnMap(container: HTMLElement, onSelect: (sel: string) =
     apply();
   };
   const clamp = () => {
-    vb.w = Math.max(260, Math.min(W, vb.w));
+    vb.w = Math.max(MIN_W, Math.min(W, vb.w));
     const r = container.getBoundingClientRect();
     vb.h = vb.w / (r.width / Math.max(1, r.height));
     if (vb.h > H) { vb.h = H; vb.w = H * (r.width / Math.max(1, r.height)); }
     vb.x = Math.max(-40, Math.min(W - vb.w + 40, vb.x));
     vb.y = Math.max(-40, Math.min(H - vb.h + 40, vb.y));
   };
-  const apply = () => svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
+  const apply = () => { svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`); scaleMarkers(); };
   const toWorld = (cx: number, cy: number) => {
     const r = container.getBoundingClientRect();
     return { x: vb.x + ((cx - r.left) / r.width) * vb.w, y: vb.y + ((cy - r.top) / r.height) * vb.h };
@@ -104,9 +117,9 @@ export function createDrawnMap(container: HTMLElement, onSelect: (sel: string) =
   requestAnimationFrame(fit);
 
   return {
-    setOverlay(s) { overlay.innerHTML = s; },
+    setOverlay(s) { overlay.innerHTML = s; scaleMarkers(true); },
     focus([x, y], zoom) {
-      if (zoom) vb.w = W / zoom;
+      if (zoom) vb.w = W / zoom;  // zoom — во сколько раз уже всей карты
       clamp();
       vb.x = x - vb.w / 2; vb.y = y - vb.h / 2;
       clamp(); apply();
