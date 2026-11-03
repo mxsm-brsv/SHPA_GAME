@@ -1,0 +1,69 @@
+# База, функции (вход, проверка подписки, уведомления бота) и банк вопросов в Supabase.
+# Нужны секреты: SUPABASE_ACCESS_TOKEN, SUPABASE_DB_PASSWORD, BOT_TOKEN. Адрес проекта — в deploy.env.
+name: Deploy backend
+on:
+  push:
+    branches: [main]
+    paths: ['supabase/**', 'content/**', 'deploy.env', 'scripts/seed-questions.mjs', 'scripts/supabase-keys.sh', '.github/workflows/backend.yml']
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      ready: ${{ steps.c.outputs.ready }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: c
+        name: Настроен ли Supabase
+        run: |
+          source <(grep -E '^[A-Z_]+=' deploy.env)
+          if [ -n "${SUPABASE_URL:-}" ]; then echo "ready=true" >> "$GITHUB_OUTPUT"; else echo "ready=false" >> "$GITHUB_OUTPUT"; echo "::notice::В deploy.env ещё нет SUPABASE_URL — база не публикуется"; fi
+  backend:
+    needs: check
+    if: needs.check.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Настройки из deploy.env
+        run: |
+          grep -E '^[A-Z_]+=' deploy.env >> "$GITHUB_ENV"
+          source <(grep -E '^[A-Z_]+=' deploy.env)
+          REF=$(echo "${SUPABASE_URL:-}" | sed -nE 's#^https://([a-z0-9]+)\.supabase\.co/?$#\1#p')
+          if [ -z "$REF" ]; then echo "::error::В deploy.env нет SUPABASE_URL вида https://xxxx.supabase.co"; exit 1; fi
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ] || [ -z "$SUPABASE_DB_PASSWORD" ]; then echo "::error::Добавьте секреты SUPABASE_ACCESS_TOKEN и SUPABASE_DB_PASSWORD (Settings → Secrets and variables → Actions)"; exit 1; fi
+          echo "PROJECT_REF=$REF" >> "$GITHUB_ENV"
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Связать проект
+        run: supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+      - name: Миграции базы
+        run: supabase db push --password "$SUPABASE_DB_PASSWORD"
+      - name: Секреты функций
+        run: |
+          # «перец» для паролей входа создаётся один раз и больше не меняется
+          if ! supabase secrets list --project-ref "$PROJECT_REF" | grep -q AUTH_PEPPER; then
+            supabase secrets set --project-ref "$PROJECT_REF" AUTH_PEPPER="$(openssl rand -hex 24)"
+          fi
+          if [ -n "$BOT_TOKEN" ]; then supabase secrets set --project-ref "$PROJECT_REF" BOT_TOKEN="$BOT_TOKEN"; else echo "::warning::Нет секрета BOT_TOKEN — вход из Telegram и сообщения бота не заработают"; fi
+          if [ -n "${TG_CHANNEL:-}" ]; then supabase secrets set --project-ref "$PROJECT_REF" TG_CHANNEL="$TG_CHANNEL"; fi
+      - name: Функции
+        run: |
+          for f in auth check-sub notify; do supabase functions deploy "$f" --project-ref "$PROJECT_REF" --no-verify-jwt; done
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Ключ сервиса
+        run: ./scripts/supabase-keys.sh "$PROJECT_REF"
+      - name: Банк вопросов
+        env:
+          SECRET_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          KEY="${SECRET_SERVICE_KEY:-${SERVICE_KEY:-}}"
+          if [ -z "$KEY" ]; then echo "::error::Не получилось достать ключ сервиса. Добавьте секрет SUPABASE_SERVICE_ROLE_KEY (Supabase → Settings → API Keys)"; exit 1; fi
+          SUPABASE_SERVICE_ROLE_KEY="$KEY" node scripts/seed-questions.mjs content/questions.json

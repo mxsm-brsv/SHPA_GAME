@@ -1,0 +1,13 @@
+# Минимальная конфигурация Supabase CLI. Проект привязывается в GitHub Actions: supabase link --project-ref ...
+project_id = "profbyuro-game"
+
+[functions.auth]
+verify_jwt = false
+
+# Игрока проверяем в коде функции (запрос к Auth API), поэтому шлюзовая проверка JWT не нужна —
+# так функции работают и со старыми ключами (anon/service_role), и с новыми (publishable/secret).
+[functions.check-sub]
+verify_jwt = false
+
+[functions.notify]
+verify_jwt = false

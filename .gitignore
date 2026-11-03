@@ -1,0 +1,15 @@
+node_modules
+dist
+dist-single
+.env
+.env.*
+bank.json
+questions.json
+*.local
+!content/questions.json
+# список выезда с ФИО — только в базе, не в репозитории
+roster*.csv
+roster*.json
+dist-preview
+__pycache__
+*.pyc

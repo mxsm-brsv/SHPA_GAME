@@ -1,0 +1,56 @@
+# Сборка игры и публикация на GitHub Pages при каждом пуше в main. Настройки — в deploy.env.
+name: Deploy game
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['supabase/**', 'content/**', 'README.md', 'scripts/gen-bank/**', 'scripts/balance/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Настройки из deploy.env
+        run: |
+          grep -E '^[A-Z_]+=' deploy.env >> "$GITHUB_ENV"
+          source <(grep -E '^[A-Z_]+=' deploy.env)
+          REF=$(echo "${SUPABASE_URL:-}" | sed -nE 's#^https://([a-z0-9]+)\.supabase\.co/?$#\1#p')
+          echo "PROJECT_REF=$REF" >> "$GITHUB_ENV"
+      - name: Ключ anon, если не вписан
+        if: env.SUPABASE_ANON_KEY == '' && env.PROJECT_REF != '' && env.SUPABASE_ACCESS_TOKEN != ''
+        run: ./scripts/supabase-keys.sh "$PROJECT_REF"
+      - run: npm ci
+      - name: Сборка
+        run: |
+          export VITE_SUPABASE_URL="${SUPABASE_URL:-}" VITE_SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:-}" VITE_BOT_USERNAME="${BOT_USERNAME:-}"
+          export VITE_TG_CHANNEL="${TG_CHANNEL:-}" VITE_TEST_MODE="${TEST_MODE:-true}" VITE_YANDEX_MAPS_KEY="${YANDEX_MAPS_KEY:-}"
+          npm run build
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
