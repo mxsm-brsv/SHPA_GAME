@@ -1,5 +1,6 @@
 # Проверка живого проекта: база отвечает, банк загружен, функции работают, сайт открыт, бот и канал настроены.
-# Запуск: Actions → Smoke test → Run workflow. Секретов в лог не выводит.
+# Заодно настраивает бота: кнопка меню «Играть» с адресом игры и описание. Секретов в лог не выводит.
+# Запуск: Actions → Smoke test → Run workflow.
 name: Smoke test
 on:
   workflow_dispatch:
@@ -44,6 +45,10 @@ jobs:
         if: env.BOT_TOKEN != ''
         run: |
           tg() { curl -sS "https://api.telegram.org/bot$BOT_TOKEN/$1" "${@:2}"; }
+          OWNER="${GITHUB_REPOSITORY%%/*}"; REPO="${GITHUB_REPOSITORY#*/}"; GAME="https://${OWNER,,}.github.io/$REPO/"
+          tg setChatMenuButton -H 'content-type: application/json' -d "{\"menu_button\":{\"type\":\"web_app\",\"text\":\"Играть\",\"web_app\":{\"url\":\"$GAME\"}}}" >/dev/null
+          tg setMyShortDescription --data-urlencode "short_description=Игра Школы профсоюзного актива МЭИ: задания, подготовка к конкурсу, битва профбюро" >/dev/null
+          tg setMyDescription --data-urlencode "description=Игра выезда ШПА МЭИ. Нажми «Играть», войди по ФИО и группе — твоё профбюро подставится само. Задания, QR-отметки на блоках, подготовка к правовому конкурсу, мерч за баллы." >/dev/null
           ME=$(tg getMe)
           echo "бот: $(echo "$ME" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);console.log(j.ok?"@"+j.result.username:"токен не подошёл: "+j.description)})')"
           ID=$(echo "$ME" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);console.log(j.ok?j.result.id:"")})')
