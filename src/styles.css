@@ -441,7 +441,6 @@ h1, h2, h3 { font-family: var(--head); font-weight: 400; margin: 0; }
 .side .sq { width: 46px; height: 46px; }
 .side button { font-size: 11px; width: 66px; }
 .base::after { height: var(--grass, 260px); }
-@media (max-height: 700px) { .side { top: 118px; gap: 6px; } .side .sq { width: 42px; height: 42px; } .side button { gap: 2px; } }
 
 /* ---------- v3: QR-станция, сканер, подготовка ---------- */
 .chip { height: auto; min-height: 34px; line-height: 1.2; padding: 6px 14px; }
@@ -514,3 +513,32 @@ h1, h2, h3 { font-family: var(--head); font-weight: 400; margin: 0; }
 .bunit.ally .hp > i { background: var(--green); }
 .dmg.ally-hit { color: #ff8a8a; font-size: 15px; }
 @media (max-height: 700px) { .bunit .pic { width: 44px; height: 44px; } .bunit.boss .pic { width: 60px; height: 60px; } .bunit .bn { font-size: 9px; } .sk { min-height: 50px; } }
+
+/* ---------- v3: база на низком окне (Telegram на компьютере, маленькие телефоны) ---------- */
+.side { gap: 10px; }
+.side .lbl { display: block; line-height: 1.15; }
+.base.compact .side { gap: 4px; }
+.base.compact .side .sq { width: 40px; height: 40px; border-radius: 12px; }
+.base.compact .side .sq svg { width: 20px; height: 20px; }
+.base.compact .side button { font-size: 10px; gap: 1px; width: 58px; }
+.base.tiny .side { gap: 5px; }
+.base.tiny .side .sq { width: 36px; height: 36px; border-radius: 10px; }
+.base.tiny .side .sq svg { width: 19px; height: 19px; }
+.base.tiny .side button { width: 40px; gap: 0; }
+.base.tiny .side .lbl { display: none; }
+.base.row .side { flex-direction: row; top: auto; gap: 6px; }
+@media (max-height: 760px) {
+  .base-top { padding-top: 8px; gap: 6px; }
+  .base-bottom { gap: 8px; bottom: 8px; }
+  .clicker { padding: 6px 8px; gap: 5px; }
+  .bld-chip { height: 28px; }
+  .lecture { padding: 6px 8px; }
+  .fight .go { min-height: 54px; font-size: 20px; }
+  .fight .skirm { min-height: 54px; }
+}
+@media (max-height: 640px) {
+  .lecture [data-text] { display: none; }
+  .fight .go { min-height: 48px; font-size: 18px; }
+  .fight .skirm { min-height: 48px; }
+}
+.base.row .ratusha-label { display: none; }

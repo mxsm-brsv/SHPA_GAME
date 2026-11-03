@@ -57,15 +57,15 @@ export function renderBase(app: App) {
     </div>
 
     <div class="side l">
-      <button data-act="tasks"><div class="sq">${icon('clipboard', 24)}</div>Задания</button>
-      <button data-act="lecture"><div class="sq hl">${icon('qr', 24)}<span class="badge hidden" data-lbadge>!</span></div>QR</button>
-      <button data-act="prep"><div class="sq">${icon('book', 24)}</div>Подготовка</button>
+      <button data-act="tasks" aria-label="Задания"><div class="sq">${icon('clipboard', 24)}</div><span class="lbl">Задания</span></button>
+      <button data-act="lecture" aria-label="Отметка по QR"><div class="sq hl">${icon('qr', 24)}<span class="badge hidden" data-lbadge>!</span></div><span class="lbl">QR</span></button>
+      <button data-act="prep" aria-label="Подготовка"><div class="sq">${icon('book', 24)}</div><span class="lbl">Подготовка</span></button>
     </div>
     <div class="side r">
-      <button data-act="notes" data-notes><div class="sq">${icon('info', 24)}<span class="badge hidden" data-nbadge></span></div>Ответы</button>
-      <button data-act="gift"><div class="sq">${icon('gift', 24)}${gift ? '<span class="badge">1</span>' : ''}</div>Подарок</button>
-      <button data-act="clan"><div class="sq hl">${icon('users', 24)}</div>Моё ПБ</button>
-      ${app.backend.staff ? `<button data-act="staff"><div class="sq" style="border-color:var(--gold)">${icon('shield', 24, '#ffd76a')}</div>Орг.</button>` : ''}
+      ${app.backend.staff ? `<button data-act="staff" aria-label="Панель организатора"><div class="sq" style="border-color:var(--gold)">${icon('shield', 24, '#ffd76a')}</div><span class="lbl">Орг.</span></button>` : ''}
+      <button data-act="notes" data-notes aria-label="Ответы организаторов"><div class="sq">${icon('info', 24)}<span class="badge hidden" data-nbadge></span></div><span class="lbl">Ответы</span></button>
+      <button data-act="clan" aria-label="Моё ПБ"><div class="sq hl">${icon('users', 24)}</div><span class="lbl">Моё ПБ</span></button>
+      <button data-act="gift" aria-label="Подарок"><div class="sq">${icon('gift', 24)}${gift ? '<span class="badge">1</span>' : ''}</div><span class="lbl">Подарок</span></button>
     </div>
 
     <div class="tap-zone" data-tap aria-label="Тапай по ратуше">
@@ -140,13 +140,30 @@ export function renderBase(app: App) {
   // зона тапа — от верхней панели до нижней, какой бы высоты ни были экран и панели
   const bottom = $(node, '.base-bottom');
   const top = $(node, '.base-top');
+  // Боковые кнопки и ратуша — в просвете между верхней и нижней панелями. На низком окне (Telegram на компьютере,
+  // маленький телефон) кнопки сжимаются: компактно → только значки → одной строкой над нижней панелью.
+  const sides = Array.from(node.querySelectorAll<HTMLElement>('.side'));
   const fit = () => {
-    zone.style.bottom = `${bottom.offsetHeight + 16}px`;
-    zone.style.top = `${top.offsetHeight + 16}px`;
+    const H = node.clientHeight;
+    if (!H) return;
+    const topEdge = top.offsetTop + top.offsetHeight;
+    const botH = bottom.offsetHeight + 10;
+    const most = Math.max(...sides.map((x) => x.children.length));
+    const avail = H - topEdge - botH - 12;
+    const need = (sq: number, lbl: number, gap: number) => most * (sq + lbl) + (most - 1) * gap;
+    const mode = avail >= need(46, 17, 10) ? '' : avail >= need(40, 13, 4) ? 'compact' : avail >= need(36, 0, 5) ? 'tiny' : 'row';
+    node.classList.toggle('compact', mode === 'compact');
+    node.classList.toggle('tiny', mode === 'tiny' || mode === 'row');
+    node.classList.toggle('row', mode === 'row');
+    const rowH = mode === 'row' ? 50 : 0;
+    sides.forEach((x) => { x.style.top = mode === 'row' ? '' : `${topEdge + 10}px`; x.style.bottom = mode === 'row' ? `${botH + 6}px` : ''; });
+    zone.style.bottom = `${botH + 16 + rowH}px`;
+    zone.style.top = `${topEdge + 12}px`;
     ($(node, '.base-scene') as HTMLElement).style.bottom = `${bottom.offsetHeight + 4}px`;
     node.style.setProperty('--grass', `${bottom.offsetHeight + 14}px`);
   };
-  if (typeof ResizeObserver !== 'undefined') { const ro = new ResizeObserver(fit); ro.observe(bottom); ro.observe(top); node.addEventListener('detach', () => ro.disconnect()); }
+  if (typeof ResizeObserver !== 'undefined') { const ro = new ResizeObserver(fit); ro.observe(bottom); ro.observe(top); ro.observe(node); node.addEventListener('detach', () => ro.disconnect()); }
+  else window.addEventListener('resize', fit);
   requestAnimationFrame(fit);
   const rat = $(node, '[data-rat]');
   let lastHaptic = 0;
