@@ -46,7 +46,7 @@ jobs:
         run: |
           tg() { curl -sS "https://api.telegram.org/bot$BOT_TOKEN/$1" "${@:2}"; }
           OWNER="${GITHUB_REPOSITORY%%/*}"; REPO="${GITHUB_REPOSITORY#*/}"; GAME="https://${OWNER,,}.github.io/$REPO/"
-          tg setChatMenuButton -H 'content-type: application/json' -d "{\"menu_button\":{\"type\":\"web_app\",\"text\":\"Играть\",\"web_app\":{\"url\":\"$GAME\"}}}" >/dev/null
+          echo "кнопка меню → $GAME: $(tg setChatMenuButton -H "content-type: application/json" -d "{\"menu_button\":{\"type\":\"web_app\",\"text\":\"Играть\",\"web_app\":{\"url\":\"$GAME\"}}}")"
           tg setMyShortDescription --data-urlencode "short_description=Игра Школы профсоюзного актива МЭИ: задания, подготовка к конкурсу, битва профбюро" >/dev/null
           tg setMyDescription --data-urlencode "description=Игра выезда ШПА МЭИ. Нажми «Играть», войди по ФИО и группе — твоё профбюро подставится само. Задания, QR-отметки на блоках, подготовка к правовому конкурсу, мерч за баллы." >/dev/null
           ME=$(tg getMe)
