@@ -105,6 +105,10 @@ for (let q = 0; q < ROUNDS; q++) {
     setTimeout(async () => {
       // телефон мог ещё не узнать о вопросе (плохая связь) — человек жмёт, пока не сработает
       for (let k = 0; k < 400; k++) {
+        // телефон ещё не узнал об этом вопросе — ждём; уже идёт следующий — этот вопрос пропущен
+        const known = ph.link.round?.id;
+        if (known !== undefined && known > rid) return;
+        if (known !== rid) { await sleep(15); continue; }
         const tp = performance.now();
         const res = ph.link.press(ph.clock.now());
         if (res === 'pressed') {
@@ -171,9 +175,9 @@ for (let q = 0; q < ROUNDS; q++) {
     stats.confirmMs.push(confirmedAt - leaderTruth);
     if (confirmedLeader !== tFirst) {
       const L = rows.find((x) => x.team === confirmedLeader), T = rows.find((x) => x.team === tFirst);
-      const sure = L && T && Math.abs(L.ours - T.ours) >= Math.max(30, L.err + T.err);
+      const sure = !!L && !!T && Math.abs(L.ours - T.ours) >= Math.max(30, L.err + T.err);
       if (sure) stats.wrongConfirmed++; else stats.wrongButFlagged++;
-      console.log(`   ⚠ вопрос ${q + 1}: подтверждён «${teams.find((t) => t.id === confirmedLeader)?.name}», на деле первыми «${teams.find((t) => t.id === tFirst)?.name}»: разница по истине ${(L.truth - T.truth).toFixed(0)} мс, по меткам ${(L.ours - T.ours).toFixed(0)} мс, погрешности ±${L.err}/±${T.err} мс — ${sure ? 'ОШИБКА' : 'ведущий видел «под вопросом»'}`);
+      if (L && T) console.log(`   ⚠ вопрос ${q + 1}: подтверждён «${teams.find((t) => t.id === confirmedLeader)?.name}», на деле первыми «${teams.find((t) => t.id === tFirst)?.name}»: разница по истине ${(L.truth - T.truth).toFixed(0)} мс, по меткам ${(L.ours - T.ours).toFixed(0)} мс, погрешности ±${L.err}/±${T.err} мс — ${sure ? 'ОШИБКА' : 'ведущий видел «под вопросом»'}`);
     }
   }
   if (pr.some((p) => p.tie)) stats.ties++;
