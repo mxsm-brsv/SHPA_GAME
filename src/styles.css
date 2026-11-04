@@ -682,3 +682,7 @@ input[type="range"] { width: 100%; accent-color: var(--gold); }
 @keyframes busin { from { transform: translateX(-140%); opacity: 0; } }
 @keyframes bushop { 50% { transform: translateY(-4px); } }
 .bus-p { transition: transform .2s; }
+
+/* Настройки: опасная зона админа */
+.danger-zone { border: 1px solid rgba(229,72,77,.55); background: rgba(229,72,77,.08); }
+.danger-zone .btn[disabled] { opacity: .45; filter: grayscale(.4); }

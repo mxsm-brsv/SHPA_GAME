@@ -57,7 +57,7 @@ select contribute('kassa', 500)->>'accepted' as acc1;
 select contribute('kassa', 5000)->>'accepted' as acc2_capped;
 select get_clan()->'xp' as xp;
 \echo '--- save_progress: подменённая сила режется'
-select save_progress('{"v":1}'::jsonb, 99999999, 60);
+select save_progress('{"v":1}'::jsonb, 99999999, 60, setting_int('progress_epoch', 0));
 select power, stage from players where id = :'p1';
 \echo '--- мерч: закрыт → открыт, покупка, лимит в одни руки, нехватка баллов, остаток'
 set test.uid = :'admin_id';

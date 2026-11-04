@@ -3,11 +3,16 @@
 import { icon } from '../art/icons';
 import { el, esc, modal } from '../lib/dom';
 import type { App } from './app';
+import { openStaff } from './screens/staff';
 
 export interface TourStep { sel?: string; title: string; text: string }
 
-const KEY_PLAYER = 'shpa.tour.player.v1';
-const KEY_STAFF = 'shpa.tour.staff.v1';
+// v2: после общего сброса 4 ноября обучение показывается всем заново (и у организаторов — своё).
+const KEY_PLAYER = 'shpa.tour.player.v2';
+const KEY_ORG = 'shpa.tour.org.v2';
+const KEY_STAFF = 'shpa.tour.staff.v2';
+/** Организатор или админ — по роли из списка выезда (в демо все тестеры видят панель, но обучение — участника). */
+export const isOrg = (app: App) => app.state?.role === 'staff' || app.state?.role === 'admin';
 const seen = (k: string) => { try { return localStorage.getItem(k) === '1'; } catch { return true; } };
 const mark = (k: string) => { try { localStorage.setItem(k, '1'); } catch { /* приватный режим */ } };
 
@@ -24,6 +29,17 @@ export const PLAYER_TOUR: TourStep[] = [
   { sel: '.base [data-act="help"]', title: 'Помощь', text: 'Если что-то непонятно — здесь короткие ответы и это обучение заново. Удачи на ШПА!' },
 ];
 
+/** Организатору на базе: он тоже в игре, но работает через панель. Последний шаг открывает панель и её обучение. */
+export const ORG_TOUR: TourStep[] = [
+  { title: 'Привет, организатор! ⚡', text: 'У тебя та же игра, что у участников, плюс панель организатора. Ты играешь вне зачёта: рейтинг и мерч — только у участников. Сначала — что видят они, потом — твоя панель.' },
+  { sel: '.nav', title: 'Меню участника', text: 'Задания · QR · База · Подготовка · Мерч. Если спросят «куда нажать» — всё главное здесь, внизу.' },
+  { sel: '.nav [data-tab="qr"]', title: 'Отметка на блоке', text: 'Участник открывает «QR» → «Сканировать» и наводит камеру на твой QR. Не сканируется — вводит 6 знаков под ним. Сам QR ты открываешь в панели → «QR-отметка».' },
+  { sel: '.nav [data-tab="tasks"]', title: 'Сдача заданий', text: 'Отсюда участники сдают задания. Сдачи приходят тебе в панель → «Проверка», а ответ — им в «Задания → Ответы» и сообщением бота.' },
+  { sel: '.nav [data-tab="shop"]', title: 'Мерч', text: 'Участник покупает мерч за баллы и показывает «Мой QR» у стола выдачи. Ты сканируешь его в панели → «Выдача».' },
+  { sel: '.base [data-act="help"]', title: 'Помощь', text: 'Короткие ответы на частые вопросы участников и повтор обучения — твоего и участника.' },
+  { sel: '.base [data-act="staff"]', title: 'Твоя панель «Орг.»', text: 'Вся работа на выезде — здесь: команда, QR-отметки, проверка, начисление, мерч, эфир. Откроем её и пройдёмся по вкладкам.' },
+];
+
 export const STAFF_TOUR: TourStep[] = [
   { title: 'Панель организатора', text: 'Здесь всё для работы на выезде. Пройдёмся по вкладкам — так вы не будете делать одно и то же вдвоём.' },
   { sel: '[data-v="team"]', title: 'Команда', text: 'Отметь, на чём ты сейчас: проверка, QR на блоках, мерч, эфир, карта. Видно, кто чем занят и сколько держит на проверке.' },
@@ -37,8 +53,9 @@ export const STAFF_TOUR: TourStep[] = [
   { sel: '[data-act="screen"]', title: 'Экран для зала', text: 'Открой на ноутбуке у проектора: рейтинг ПБ, эфир и большой QR открытой отметки.' },
 ];
 
-/** Подсказки поверх игры. Шаг без селектора или с ненайденной кнопкой — карточка по центру. */
-export function runTour(app: App, steps: TourStep[], key?: string) {
+/** Подсказки поверх игры. Шаг без селектора или с ненайденной кнопкой — карточка по центру.
+ *  last — надпись на кнопке последнего шага, onDone(true) — дошли до конца, onDone(false) — пропустили. */
+export function runTour(app: App, steps: TourStep[], key?: string, opts: { last?: string; onDone?: (finished: boolean) => void } = {}) {
   let i = 0;
   const node = el(`<div class="tour" role="dialog" aria-label="Обучение"><div class="tour-hole"></div>
     <div class="tour-card"><div class="small muted" data-n></div><h3 data-t></h3><p data-x></p>
@@ -51,7 +68,7 @@ export function runTour(app: App, steps: TourStep[], key?: string) {
     (node.querySelector('[data-n]') as HTMLElement).textContent = `${i + 1} из ${steps.length}`;
     (node.querySelector('[data-t]') as HTMLElement).innerHTML = esc(st.title);
     (node.querySelector('[data-x]') as HTMLElement).innerHTML = esc(st.text);
-    (node.querySelector('[data-next]') as HTMLElement).textContent = i === steps.length - 1 ? 'Понятно' : 'Далее';
+    (node.querySelector('[data-next]') as HTMLElement).textContent = i === steps.length - 1 ? (opts.last ?? 'Понятно') : 'Далее';
     (node.querySelector('[data-prev]') as HTMLElement).classList.toggle('hidden', i === 0);
     const t = st.sel ? Array.from(app.root.querySelectorAll<HTMLElement>(st.sel)).find((x) => x.getBoundingClientRect().width > 0) : null;
     const R = app.root.getBoundingClientRect();
@@ -70,32 +87,52 @@ export function runTour(app: App, steps: TourStep[], key?: string) {
     if (below) card.style.top = `${Math.min(R.height - 200, r.bottom - R.top + 16)}px`;
     else card.style.bottom = `${Math.min(R.height - 200, R.bottom - r.top + 16)}px`;
   };
-  const finish = () => { if (key) mark(key); node.remove(); window.removeEventListener('resize', show); };
-  node.querySelector('[data-next]')!.addEventListener('click', () => { if (++i >= steps.length) finish(); else show(); });
+  const finish = (done: boolean) => { if (key) mark(key); node.remove(); window.removeEventListener('resize', show); opts.onDone?.(done); };
+  node.querySelector('[data-next]')!.addEventListener('click', () => { if (++i >= steps.length) finish(true); else show(); });
   node.querySelector('[data-prev]')!.addEventListener('click', () => { i = Math.max(0, i - 1); show(); });
-  node.querySelector('[data-skip]')!.addEventListener('click', finish);
+  node.querySelector('[data-skip]')!.addEventListener('click', () => finish(false));
   window.addEventListener('resize', show);
   app.root.appendChild(node);
   requestAnimationFrame(show);
 }
 
-/** Первый вход: дождаться, пока закроются приветственные окна, и показать обучение на базе. */
+/** Обучение участника на базе. */
+export function runPlayerTour(app: App) {
+  if (app.tab !== 'base') app.go('base');
+  setTimeout(() => runTour(app, PLAYER_TOUR, KEY_PLAYER), 250);
+}
+
+/** Обучение организатора: база глазами участника → панель «Орг.» → вкладки панели. */
+export function runOrgTour(app: App) {
+  if (app.tab !== 'base') app.go('base');
+  setTimeout(() => runTour(app, ORG_TOUR, KEY_ORG, {
+    last: 'Открыть панель',
+    onDone: (finished) => {
+      if (!finished) return;
+      mark(KEY_STAFF); // обучение по вкладкам запускаем сами, чтобы не было двух подряд
+      openStaff(app);
+      setTimeout(() => runTour(app, STAFF_TOUR, KEY_STAFF), 450);
+    },
+  }), 250);
+}
+
+/** Первый вход: дождаться, пока закроются приветственные окна, и показать обучение по роли. */
 export function maybeStartTour(app: App) {
-  if (seen(KEY_PLAYER)) return;
+  const org = isOrg(app);
+  if (seen(org ? KEY_ORG : KEY_PLAYER)) return;
   let tries = 0;
   const wait = () => {
     if (++tries > 240) return;
     if (app.root.querySelector('.modal-back') || app.overlay) { setTimeout(wait, 500); return; }
-    if (app.tab !== 'base') app.go('base');
-    setTimeout(() => runTour(app, PLAYER_TOUR, KEY_PLAYER), 300);
+    if (org) runOrgTour(app); else runPlayerTour(app);
   };
   setTimeout(wait, 800);
 }
 
-/** Первое открытие панели организатора. */
+/** Первое открытие панели организатора (если обучение на базе пропустили). */
 export function maybeStaffTour(app: App) {
   if (seen(KEY_STAFF)) return;
-  setTimeout(() => runTour(app, STAFF_TOUR, KEY_STAFF), 400);
+  setTimeout(() => { if (!app.root.querySelector('.tour')) runTour(app, STAFF_TOUR, KEY_STAFF); }, 400);
 }
 
 const FAQ: [string, string][] = [
@@ -111,11 +148,15 @@ const FAQ: [string, string][] = [
 ];
 
 export function openHelp(app: App) {
+  const org = isOrg(app);
   const m = modal(`<h2 style="font-size:22px">Как играть</h2>
     <div class="howto small" style="margin:6px 0 10px"><b>Главное — внизу:</b> Задания · QR · База · Подготовка · Мерч.<br><b>Развлечения — по бокам базы:</b> Бой, Карта, Игры.</div>
     <div class="col" style="gap:6px">${FAQ.map(([q, a]) => `<details class="faq"><summary>${esc(q)}</summary><div class="small">${esc(a)}</div></details>`).join('')}</div>
-    <button class="btn btn-gold btn-block" data-tour style="margin-top:12px">${icon('play', 18)} Пройти обучение заново</button>
-    ${app.backend.staff ? `<button class="btn btn-blue btn-block" data-stour style="margin-top:8px">${icon('shield', 18)} Обучение организатора — в панели «Орг.» → «Гайд»</button>` : ''}`);
-  m.root.querySelector('[data-tour]')!.addEventListener('click', () => { m.close(); app.go('base'); setTimeout(() => runTour(app, PLAYER_TOUR, KEY_PLAYER), 250); });
-  m.root.querySelector('[data-stour]')?.addEventListener('click', () => m.close());
+    ${org
+      ? `<button class="btn btn-gold btn-block" data-org style="margin-top:12px">${icon('shield', 18)} Обучение организатора заново</button>
+         <button class="btn btn-ghost btn-block" data-tour style="margin-top:8px">${icon('play', 18)} Посмотреть обучение участника</button>`
+      : `<button class="btn btn-gold btn-block" data-tour style="margin-top:12px">${icon('play', 18)} Пройти обучение заново</button>
+         ${app.backend.staff ? `<button class="btn btn-ghost btn-block" data-org style="margin-top:8px">${icon('shield', 18)} Обучение организатора</button>` : ''}`}`);
+  m.root.querySelector('[data-tour]')!.addEventListener('click', () => { m.close(); runPlayerTour(app); });
+  m.root.querySelector('[data-org]')?.addEventListener('click', () => { m.close(); runOrgTour(app); });
 }

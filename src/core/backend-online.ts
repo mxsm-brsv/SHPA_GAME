@@ -18,12 +18,23 @@ import type {
   DutyZone, TeamMember,
 } from './backend';
 
-interface MeRow { id: string; username: string; faction: FactionId | null; rating: number; state: unknown; role: Role; secret: string; contributed: number }
+interface MeRow { id: string; username: string; faction: FactionId | null; rating: number; state: unknown; role: Role; secret: string; contributed: number; epoch?: number }
 interface ClanRow { faction: FactionId; xp: Record<BuildingId, number>; members: ClanView['members']; limit?: number }
 interface TaskSync { done: Record<string, number>; pending: Record<string, number>; subs: MySubmission[] }
 
 /** Код организатора: регистр, лишние пробелы и «ё» не важны («секретный  код» = «СЕКРЕТНЫЙ КОД»). */
 const normStaffCode = (c: string) => c.trim().replace(/\s+/g, ' ').toUpperCase().replace(/Ё/g, 'Е');
+
+/** После общего сброса прогресса на сервере: забыть пройденное обучение и прогресс подготовки на этом устройстве. */
+const LS_EPOCH = 'shpa.epoch';
+const LOCAL_PROGRESS = ['shpa.tour.player.v2', 'shpa.tour.staff.v2', 'shpa.tour.org.v2', 'pbgame.prep'];
+function syncEpoch(epoch: number) {
+  try {
+    const was = localStorage.getItem(LS_EPOCH);
+    if (was !== null && Number(was) !== epoch) LOCAL_PROGRESS.forEach((k) => localStorage.removeItem(k));
+    localStorage.setItem(LS_EPOCH, String(epoch));
+  } catch { /* приватный режим */ }
+}
 
 function deviceKey() {
   try {
@@ -41,6 +52,9 @@ export class OnlineBackend implements Backend {
   private qCache: Question[] | null = null;
   private meId = '';
   private cfg: GameConfig | null = null;
+  private epoch = 0;
+  /** После общего сброса до перезагрузки не сохраняем старое состояние из памяти. */
+  private frozen = false;
 
   constructor(url: string, key: string) { this.sb = new Sb(url, key); }
 
@@ -50,6 +64,8 @@ export class OnlineBackend implements Backend {
     const me = await this.rpc<MeRow>('me').catch((e: Error) => ({ error: e.message }) as { error: string });
     if ('error' in me) return { state: null, needLogin: true, error: me.error };
     this.meId = me.id;
+    this.epoch = Number(me.epoch ?? 0);
+    syncEpoch(this.epoch);
     this.staff = me.role === 'staff' || me.role === 'admin';
     this.admin = me.role === 'admin';
     const st = migrate(me.state) ?? newState(me.username);
@@ -101,7 +117,17 @@ export class OnlineBackend implements Backend {
   }
 
   async save(s: GameState) {
-    await this.rpc('save_progress', { p_state: s, p_power: squadPower(s).total, p_stage: s.stage }).catch(() => {});
+    if (this.frozen) return;
+    await this.rpc('save_progress', { p_state: s, p_power: squadPower(s).total, p_stage: s.stage, p_epoch: this.epoch }).catch((e: Error) => {
+      // организаторы обнулили прогресс, пока игра была открыта: не перезаписывать, а начать заново
+      if (!/progress_reset/.test(e.message)) return;
+      try {
+        const last = Number(sessionStorage.getItem('shpa.reload') ?? 0);
+        if (Date.now() - last < 60_000) return;
+        sessionStorage.setItem('shpa.reload', String(Date.now()));
+      } catch { /* приватный режим */ }
+      location.reload();
+    });
   }
 
   async config(): Promise<GameConfig> {
@@ -323,4 +349,10 @@ export class OnlineBackend implements Backend {
   }
   async staffRosterReset(id: string) { return this.rpc<string>('staff_roster_reset', { p_id: id }); }
   async staffSetSetting(key: 'shop_open' | 'require_group', value: boolean) { await this.rpc('staff_set_setting', { p_key: key, p_value: value }); this.cfg = null; }
+  async adminResetProgress(confirm: string) {
+    const r = await this.rpc<{ players: number; submissions: number; orders: number; qr: number; epoch: number }>('admin_reset_progress', { p_confirm: confirm });
+    this.frozen = true;
+    syncEpoch(r.epoch);
+    return `Прогресс обнулён: игроков ${r.players}, сдач ${r.submissions}, заказов мерча ${r.orders} (возвращены на склад), QR-отметок ${r.qr}.`;
+  }
 }

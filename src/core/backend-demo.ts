@@ -169,7 +169,9 @@ export class DemoBackend implements Backend {
 
   async logout() { lsDel(LS_SESSION); this.state = null; }
 
-  async save(s: GameState) { this.state = s; lsSet(LS_KEY, JSON.stringify(s)); }
+  /** После «Обнулить прогресс всех» до перезагрузки не сохраняем старое состояние из памяти. */
+  private frozen = false;
+  async save(s: GameState) { if (this.frozen) return; this.state = s; lsSet(LS_KEY, JSON.stringify(s)); }
 
   async config(): Promise<GameConfig> {
     const c = lsJson<Partial<GameConfig>>(LS_CFG, {});
@@ -660,6 +662,19 @@ export class DemoBackend implements Backend {
     return `Загружено строк: ${rows.length}${over.length ? `. Внимание: больше ${CLAN.pbLimit} человек в ${over.map(([f]) => f).join(', ')} — войдут только первые ${CLAN.pbLimit}` : ''}`;
   }
   async staffRosterReset() { return 'В демо привязок нет — сброс нужен только на сервере'; }
+  async adminResetProgress(confirm: string) {
+    if (!this.admin) throw new Error('Сбросить прогресс могут только админы');
+    if (confirm.trim().toUpperCase() !== 'СБРОС') throw new Error('Для подтверждения введи слово СБРОС');
+    this.frozen = true;
+    try { [LS_WORLD, LS_SUBS, LS_CLAN, LS_ORDERS, LS_LECT, LS_LIVE, LS_NOTES, LS_DUTY, 'pbgame.prep'].forEach((k) => localStorage.removeItem(k)); } catch { /* приватный режим */ }
+    const old = this.state;
+    if (old) {
+      const st = newState(old.username);
+      Object.assign(st, { username: old.username, fio: old.fio, faction: old.faction, role: old.role });
+      lsSet(LS_KEY, JSON.stringify(st));
+    }
+    return 'Демо: прогресс на этом устройстве обнулён';
+  }
   async staffSetSetting(key: 'shop_open' | 'require_group', value: boolean) {
     const c = lsJson<Partial<GameConfig>>(LS_CFG, {});
     if (key === 'shop_open') c.shopOpen = value; else c.requireGroup = value;

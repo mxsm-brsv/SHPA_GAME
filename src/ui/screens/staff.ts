@@ -234,7 +234,22 @@ export function openStaff(app: App) {
       <label class="row" style="gap:10px"><input type="checkbox" data-set="shop_open" ${c.shopOpen ? 'checked' : ''}><div class="grow"><b>Магазин мерча открыт</b><div class="small muted">Пока закрыт — товары видно, купить нельзя.</div></div></label>
       <label class="row" style="gap:10px"><input type="checkbox" data-set="require_group" ${c.requireGroup ? 'checked' : ''}><div class="grow"><b>Вход по ФИО + группа</b><div class="small muted">Группа отсекает тёзок и посторонних. Выключить — вход только по ФИО.</div></div></label>
       <div class="small muted">Режим: ${c.testMode ? '<b class="gold">тестовый</b> — стычки каждые 10 минут, мероприятие всегда идёт' : 'боевой, по расписанию выезда'}.</div></div>
-      <button class="btn btn-gold btn-block" data-act="screen">${icon('trophy', 18)} Экран для актового</button>`;
+      <button class="btn btn-gold btn-block" data-act="screen">${icon('trophy', 18)} Экран для актового</button>
+      ${app.backend.admin ? `<div class="card col danger-zone" style="gap:8px"><b>Начать всё заново</b>
+        <div class="small muted">Обнулит у всех баллы, сдачи, QR-отметки, заказы мерча (вернутся на склад), карту и здания ПБ. Список выезда, входы, задания, вопросы и мерч останутся. Открытые у людей вкладки перезапустятся с нуля.</div>
+        <input class="input-ans" data-reset-word placeholder="Впиши слово СБРОС" autocomplete="off">
+        <button class="btn btn-red btn-block" data-act="reset-all" disabled>${icon('bolt', 18)} Обнулить прогресс всех</button></div>` : ''}`;
+    const word = body.querySelector<HTMLInputElement>('[data-reset-word]');
+    const resetBtn = body.querySelector<HTMLButtonElement>('[data-act="reset-all"]');
+    word?.addEventListener('input', () => { if (resetBtn) resetBtn.disabled = word.value.trim().toUpperCase() !== 'СБРОС'; });
+    resetBtn?.addEventListener('click', async () => {
+      resetBtn.disabled = true;
+      try {
+        const msg = await app.backend.adminResetProgress(word!.value);
+        toast(msg, 'ok');
+        setTimeout(() => location.reload(), 1800);
+      } catch (e) { toast((e as Error).message, 'bad'); resetBtn.disabled = false; }
+    });
     body.querySelectorAll<HTMLInputElement>('[data-set]').forEach((i) => i.addEventListener('change', async () => {
       await app.backend.staffSetSetting(i.dataset.set as 'shop_open' | 'require_group', i.checked).catch((e: Error) => toast(e.message, 'bad'));
       app.cfg = await app.backend.config();

@@ -127,6 +127,8 @@ export interface Backend {
   staffRosterImport(text: string): Promise<string>;
   staffRosterReset(id: string): Promise<string>;
   staffSetSetting(key: 'shop_open' | 'require_group', value: boolean): Promise<void>;
+  /** Только админ: обнулить прогресс всех (подтверждение — слово «СБРОС»). */
+  adminResetProgress(confirm: string): Promise<string>;
 }
 
 export { grantByCaps, taskAvailable, markDone } from './rules';
