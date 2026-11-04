@@ -7,6 +7,7 @@ import { haptic } from '../../core/telegram';
 import { $, el, esc, modal, onAct, toast } from '../../lib/dom';
 import { openCaseOfDay, openRing } from '../../games/law';
 import type { App } from '../app';
+import { openContest } from './contest';
 
 const LS = 'pbgame.prep';
 const LS_MY = 'pbgame.myq';
@@ -45,14 +46,25 @@ export function topicList(bank: Question[]) {
   return [...TOPICS_ORDER.filter((t) => all.includes(t)), ...all.filter((t) => !TOPICS_ORDER.includes(t)).sort()];
 }
 
-export async function openPrep(app: App) {
-  const node = el(`<div class="screen full"><div class="page">
-    <div class="row"><button class="btn btn-ghost btn-sm" data-act="exit" aria-label="Назад">${icon('back', 18)}</button>
-      <div class="grow"><h1 style="font-size:24px">Подготовка</h1><div class="small muted">Открыто для всех · без баллов · с нормами</div></div></div>
+/** Подготовка — вкладка нижнего меню (в игре) или полноэкранное окно (до входа). */
+export function renderPrep(app: App) { return prepShell(app, true); }
+export function openPrep(app: App) {
+  if (app.inGame) { app.go('prep'); return; }
+  prepShell(app, false);
+}
+
+function prepShell(app: App, tab: boolean) {
+  const node = el(`<div class="screen ${tab ? '' : 'full'}"><div class="page">
+    <div class="row">${tab ? '' : `<button class="btn btn-ghost btn-sm" data-act="exit" aria-label="Назад">${icon('back', 18)}</button>`}
+      <div class="grow"><h1 style="font-size:24px">Подготовка</h1><div class="small muted">Правовой банк · тренажёры конкурса «Ты — лидер»</div></div></div>
     <div data-body class="col" style="gap:12px"><div class="muted center">Загружаю вопросы…</div></div>
   </div></div>`);
-  onAct(node, { exit: () => app.closeOverlay() });
-  app.openOverlay(node);
+  if (!tab) { onAct(node, { exit: () => app.closeOverlay() }); app.openOverlay(node); }
+  fillPrep(app, node);
+  return node;
+}
+
+async function fillPrep(app: App, node: HTMLElement) {
   if (!bankCache || !bankCache.length) bankCache = await app.backend.prepBank().catch(() => []);
   const base = bankCache;
   const body = $(node, '[data-body]');
@@ -70,6 +82,7 @@ export async function openPrep(app: App) {
     const mine = myQs().length;
     const inGame = !!app.state;
     body.innerHTML = `
+      <button class="contest-hero" data-act="contest"><div class="ch-l">${icon('trophy', 30, '#3a2a00')}</div><div class="grow"><b>Конкурс «Ты — лидер»</b><span>27–28 ноября · тренажёры всех этапов по Положению: аттестация, головоломки, «2 к 1», биатлон, председатели, заседание</span></div>${icon('play', 20, '#3a2a00')}</button>
       <div class="card row">${icon('book', 34, '#ffd76a')}<div class="grow"><b>${right} из ${base.length}</b> вопросов уже знаешь
         <div class="xp" style="margin-top:6px"><i style="width:${(right / base.length) * 100}%"></i></div></div></div>
       <div class="prep-grid">
@@ -142,6 +155,7 @@ export async function openPrep(app: App) {
       if (!tests.some((x) => x.code === t.code)) { tests.unshift({ ...t, code }); write(LS_TESTS, tests.slice(0, 30)); }
       haptic('ok'); draw(); runTest(t);
     },
+    contest: () => openContest(app, all()),
     case: () => { app.closeOverlay(); openCaseOfDay(app); },
     ring: () => { app.closeOverlay(); openRing(app); },
   });

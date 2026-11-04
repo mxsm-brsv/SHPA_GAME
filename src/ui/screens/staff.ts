@@ -6,7 +6,7 @@ import { gameById } from '../../config/minigames';
 import { DEFAULT_AUTO, merchPrice, type MerchItem, type MerchOrder } from '../../config/merch';
 import { economyPlan } from '../../config/economy-plan';
 import { icon, starSvg } from '../../art/icons';
-import type { Announcement, PlayerRef, RosterRow, Submission, UserQuestion } from '../../core/backend';
+import type { Announcement, DutyZone, PlayerRef, RosterRow, Submission, TeamMember, UserQuestion } from '../../core/backend';
 import { rightAnswerText } from '../../core/questions';
 import { haptic } from '../../core/telegram';
 import { canScanAny, scanAny } from '../../lib/scan';
@@ -14,10 +14,17 @@ import { $, el, esc, fmt, onAct, toast } from '../../lib/dom';
 import type { App } from '../app';
 import { openProjector } from './projector';
 import { drawQrStation } from './qrstation';
+import { STAFF_TOUR, maybeStaffTour, runTour } from '../tour';
 
-type Tab = 'qr' | 'mod' | 'grant' | 'merch' | 'issue' | 'live' | 'roster' | 'war' | 'set';
-const TABS: [Tab, string][] = [['qr', 'QR-отметка'], ['mod', 'Проверка'], ['grant', 'Начислить'], ['merch', 'Мерч'], ['issue', 'Выдача'], ['live', 'Эфир'], ['roster', 'Участники'], ['war', 'Карта'], ['set', 'Настройки']];
-let lastTab: Tab = 'qr';
+type Tab = 'team' | 'qr' | 'mod' | 'grant' | 'merch' | 'issue' | 'live' | 'roster' | 'war' | 'set' | 'help';
+const TABS: [Tab, string][] = [['team', 'Команда'], ['qr', 'QR-отметка'], ['mod', 'Проверка'], ['grant', 'Начислить'], ['merch', 'Мерч'], ['issue', 'Выдача'], ['live', 'Эфир'], ['roster', 'Участники'], ['war', 'Карта'], ['set', 'Настройки'], ['help', 'Гайд']];
+let lastTab: Tab = 'team';
+const ZONES: [DutyZone, string, string][] = [
+  ['mod', 'Проверка заданий', 'clipboard'], ['qr', 'QR на блоках', 'qr'], ['merch', 'Мерч и выдача', 'bag'], ['live', 'Эфир и экран', 'chat'],
+  ['map', 'Карта и мероприятия', 'map'], ['help', 'Помощь участникам', 'users'], ['free', 'Свободен', 'clock'],
+];
+const zoneName = (z: DutyZone) => ZONES.find((x) => x[0] === z)?.[1] ?? z;
+const ago = (t: number) => { const m = Math.max(0, Math.round((Date.now() - t) / 60000)); return m < 1 ? 'только что' : m < 60 ? `${m} мин назад` : `${Math.floor(m / 60)} ч назад`; };
 const REASONS = ['Не видно, что задание выполнено', 'Нужна ссылка, а не скрин', 'Не по условиям задания', 'Повтор чужой работы'];
 
 export function openStaff(app: App) {
@@ -33,14 +40,56 @@ export function openStaff(app: App) {
   const body = $(node, '[data-body]');
   let stopTimer = () => {};
 
+  // ---------- Команда: кто на какой зоне ----------
+  const drawTeam = async () => {
+    body.innerHTML = '<div class="muted">Загрузка…</div>';
+    const team: TeamMember[] = await app.backend.staffTeam().catch(() => []);
+    const me = team.find((x) => x.me);
+    let zone: DutyZone = me?.zone ?? 'free';
+    body.innerHTML = `<div class="card col" style="gap:8px"><b>Я сейчас на</b>
+        <div class="zone-grid">${ZONES.map(([z, n, ic]) => `<button class="zone ${z === zone ? 'on' : ''}" data-z="${z}">${icon(ic, 18)}<span>${n}</span></button>`).join('')}</div>
+        <input class="input-ans" data-znote maxlength="60" placeholder="Уточнение: «ИРЭ и ИЭЭ», «блок 3, актовый», «стол у входа»" value="${esc(me?.note ?? '')}">
+        <button class="btn btn-gold btn-block" data-act="zsave">Сохранить</button></div>
+      <div class="howto small"><b>Как делимся, чтобы не делать одно и то же</b><br>
+        • <b>Проверка:</b> «Проверка» → «Взять 5». Эти сдачи 10 минут видишь только ты, остальные их не тронут.<br>
+        • <b>QR на блоке</b> открывает один человек. Если такая отметка уже открыта, игра покажет её QR, а не создаст вторую.<br>
+        • <b>Мерч</b> выдаёт один стол. Остальные отправляют участников туда.<br>
+        • Сменил зону — отметь здесь, чтобы все видели.</div>
+      <div class="section-h">Состав · ${team.length}</div>
+      <div class="list">${team.map((m) => `<div class="li ${m.me ? 'me' : ''}"><div class="grow"><b>${esc(m.name)}</b>${m.role === 'admin' ? ' <span class="small muted">админ</span>' : ''}
+          <div class="small"><span class="tag" style="background:${m.zone === 'free' ? '#ffffff14' : '#ffc83d33'}">${esc(zoneName(m.zone))}</span>${m.note ? ` ${esc(m.note)}` : ''}</div>
+          <div class="small muted">${m.reviewed ? `проверил сегодня ${m.reviewed}` : 'сегодня не проверял'}${m.holding ? ` · держит ${m.holding}` : ''}${m.qrOpen ? ` · открыто QR: ${m.qrOpen}` : ''} · ${ago(m.at)}</div></div></div>`).join('') || '<div class="muted small">Состав пока не входил в игру</div>'}</div>`;
+    body.querySelectorAll<HTMLElement>('.zone').forEach((b) => b.addEventListener('click', () => {
+      zone = b.dataset.z as DutyZone;
+      body.querySelectorAll('.zone').forEach((x) => x.classList.toggle('on', x === b));
+    }));
+    $(body, '[data-act="zsave"]').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await app.backend.staffSetDuty(zone, ($(body, '[data-znote]') as HTMLInputElement).value.trim()).catch((er: Error) => toast(er.message, 'bad'));
+      toast(`Ты на зоне «${zoneName(zone)}»`, 'ok'); haptic('ok'); drawTeam();
+    });
+  };
+
   // ---------- Модерация ----------
   const drawMod = async () => {
     body.innerHTML = '<div class="muted">Загрузка…</div>';
     const [subsAll, qs] = await Promise.all([app.backend.staffSubmissions().catch(() => [] as Submission[]), app.backend.staffQuestions().catch(() => [] as UserQuestion[])]);
     const subs = subsAll.filter((x) => x.status === 'pending');
+    const mine = subs.filter((x) => x.claimedMine);
+    const others = subs.filter((x) => x.claimedBy && !x.claimedMine);
+    const free = subs.filter((x) => !x.claimedBy);
     const pq = qs.filter((q) => q.status === 'pending');
-    body.innerHTML = `<div class="small muted">Принять — баллы начислятся сразу, участнику придёт «принято». Отклонить — придёт «не принято» с причиной, он сможет сдать заново.</div>
-      ${subs.length ? subs.map((x) => subCard(x)).join('') : '<div class="card muted center">Сдач на проверку нет</div>'}
+    body.innerHTML = `<div class="card col" style="gap:8px">
+        <div class="row" style="gap:10px;justify-content:space-around;text-align:center">
+          <div><b style="font-size:22px">${free.length}</b><div class="small muted">свободно</div></div>
+          <div><b style="font-size:22px;color:var(--gold2)">${mine.length}</b><div class="small muted">у меня</div></div>
+          <div><b style="font-size:22px">${others.length}</b><div class="small muted">у других</div></div></div>
+        <div class="row" style="gap:8px"><button class="btn btn-gold grow" data-act="claim" ${free.length ? '' : 'disabled'}>Взять 5 на проверку</button>
+          ${mine.length ? '<button class="btn btn-ghost btn-sm" data-act="release">Вернуть мои</button>' : ''}</div>
+        <div class="small muted">Взятые сдачи 10 минут закреплены за тобой — другие организаторы их не проверят. Принять — баллы сразу и «✅ принято» участнику. Отклонить — «❌» с причиной, он сдаст заново.</div></div>
+      ${mine.length ? mine.map((x) => subCard(x)).join('') : `<div class="card muted center small">${free.length ? 'Нажми «Взять 5» — и проверяй.' : 'Сдач на проверку нет 🎉'}</div>`}
+      ${others.length ? `<div class="section-h">Проверяют другие</div><div class="list">${others.map((x) => `<div class="li small"><span class="grow">${esc(taskById(x.task)?.title ?? x.task)} · ${esc(x.player)}</span><span class="tag">${esc(x.claimedBy ?? '')}</span></div>`).join('')}</div>` : ''}
+      ${free.length ? `<div class="section-h">В очереди · ${free.length}</div><div class="list">${free.slice(0, 12).map((x) => `<div class="li small"><span class="grow">${esc(taskById(x.task)?.title ?? x.task)}</span><span class="muted">${new Date(x.at + 3 * 3600_000).toISOString().slice(11, 16)}</span></div>`).join('')}</div>` : ''}
       <div class="section-h">Вопросы от участников · ${pq.length}</div>
       ${pq.map((q) => `<div class="card col" data-q="${esc(q.id)}" style="gap:6px"><div class="small muted">${esc(q.author ?? '')} · ${esc(q.topic)} · ${q.format === 'yesno' ? 'да/нет' : q.format === 'choice' ? 'выбор' : 'ввод'}</div>
         <b>${esc(q.question)}</b>${q.format === 'choice' ? `<div class="small">${(q.options ?? []).map((o, i) => `${i === q.correct ? '✅' : '▫️'} ${esc(o)}`).join('<br>')}</div>` : `<div class="small">Ответ: <b class="gold">${esc(rightAnswerText(q))}</b></div>`}
@@ -171,6 +220,12 @@ export function openStaff(app: App) {
       <div class="list">${MAP_EVENTS.map((e) => `<div class="li"><div class="grow"><b>${esc(e.name)}</b><div class="small muted">${esc(gameById(e.game).name)} · трофей «${esc(e.trophy)}»</div></div><button class="btn btn-blue btn-sm" data-act="ev" data-id="${e.id}">Запустить</button></div>`).join('')}</div></div>`;
   };
 
+  // ---------- Гайд организатора ----------
+  const drawHelp = () => {
+    body.innerHTML = `<button class="btn btn-gold btn-block" data-act="stour">${icon('play', 18)} Пройти обучение по панели</button>
+      ${GUIDE.map(([t, steps]) => `<details class="faq"><summary>${esc(t)}</summary><ol class="small guide-ol">${steps.map((x) => `<li>${esc(x)}</li>`).join('')}</ol></details>`).join('')}`;
+  };
+
   // ---------- Настройки ----------
   const drawSet = async () => {
     const c = await app.backend.config();
@@ -191,7 +246,7 @@ export function openStaff(app: App) {
     stopTimer(); stopTimer = () => {};
     lastTab = tab;
     node.querySelectorAll<HTMLElement>('.chip').forEach((c) => c.classList.toggle('on', c.dataset.v === tab));
-    ({ qr: () => drawQrStation(app, body, draw), mod: drawMod, grant: drawGrant, merch: drawMerch, issue: drawIssue, live: drawLive, roster: drawRoster, war: drawWar, set: drawSet })[tab]();
+    ({ team: drawTeam, help: drawHelp, qr: () => drawQrStation(app, body, draw), mod: drawMod, grant: drawGrant, merch: drawMerch, issue: drawIssue, live: drawLive, roster: drawRoster, war: drawWar, set: drawSet })[tab]();
   };
 
   const findOrders = async (code: string) => {
@@ -206,6 +261,9 @@ export function openStaff(app: App) {
     exit: () => app.closeOverlay(),
     screen: () => openProjector(app),
     tab: (t) => { tab = t.dataset.v as Tab; draw(); },
+    claim: async () => { const n = await app.backend.staffClaim(5).catch((e: Error) => { toast(e.message, 'bad'); return -1; }); if (n >= 0) { haptic('ok'); toast(`У тебя на проверке: ${n}`, 'ok'); } drawMod(); },
+    release: async () => { await app.backend.staffRelease().catch(() => {}); toast('Вернул в общую очередь', 'info'); drawMod(); },
+    stour: () => runTour(app, STAFF_TOUR),
     ok: async (t) => {
       const card = t.closest('[data-sub]')!;
       const amt = Number((card.querySelector('[data-amt]') as HTMLInputElement).value) || 0;
@@ -266,4 +324,18 @@ export function openStaff(app: App) {
   node.addEventListener('close', () => stopTimer());
   app.openOverlay(node);
   draw();
+  maybeStaffTour(app);
 }
+
+/** Короткий гайд прямо в панели — полная версия в документе «Гайд организатора ШПА». */
+const GUIDE: [string, string[]][] = [
+  ['Перед началом смены', ['Открой «Орг.» → «Команда» и отметь свою зону: проверка, QR, мерч, эфир, карта или помощь.', 'Посмотри, кто чем занят — не берите одну и ту же зону вдвоём без нужды.', 'Проверь связь: открой «Проверка» — если список грузится, всё в порядке.']],
+  ['Отметка на блоке (QR)', ['«QR-отметка» → вид «Блок / лекция» → выбери название блока → «Открыть и показать QR».', 'Покажи телефон залу или нажми «На большой экран» на ноутбуке у проектора. QR и код меняются каждые 20 секунд — фото в чат не поможет.', 'Участники: вкладка «QR» внизу → «Сканировать» или ввести 6 знаков.', 'Отметку закрой в конце блока («Закрыть отметку»). Если такая уже открыта коллегой — игра покажет её, вторую не создаст.']],
+  ['«Я — скорость»', ['«QR-отметка» → «Я — скорость». Баллы получают только первые N (по умолчанию 5).', 'QR статичный: сделай скриншот, распечатай или спрячь — работает, пока открыта отметка.']],
+  ['Проверка заданий', ['«Проверка» → «Взять 5». Сдачи закрепляются за тобой на 10 минут.', 'Смотри фото, ссылку или текст. Баллы подставлены по заданию — можно поправить.', '«Принять» — баллы сразу, участнику «✅ принято» в игре и в боте.', '«Отклонить» — обязательно напиши причину (есть готовые). Участник сможет сдать заново.', 'Уходишь — «Вернуть мои», чтобы сдачи не ждали 10 минут.']],
+  ['Начислить баллы вручную', ['«Начислить» → найди участника по фамилии → выбери, за что → сколько баллов → «Начислить».', 'Для активности на блоке, лучшего вопроса, помощи, конкурсов ведущего.']],
+  ['Мерч и выдача', ['«Мерч»: цены, остатки, скидки. Вверху — хватает ли баллов активному участнику на весь набор.', '«Настройки» → «Магазин мерча открыт» — когда решите открыть покупки.', '«Выдача»: участник показывает «Мой QR» → «Сканировать QR» → «Выдать».', 'Ошиблись — «Отмена»: товар и баллы вернутся.']],
+  ['Эфир и экран', ['«Эфир»: сообщение всем — вверху базы у каждого и на экране зала.', 'Кнопка «Экран» — на ноутбук у проектора: рейтинг ПБ, эфир, QR открытой отметки.']],
+  ['Карта и мероприятия', ['«Карта»: «Провести раунд сейчас» — для финала или теста.', 'Запустить мероприятие вручную — если расписание сдвинулось.']],
+  ['Участники', ['«Участники»: список выезда по ПБ, кто вошёл.', '«Сброс» — если человек сменил телефон или вошёл под чужим ФИО. Прогресс сохраняется.']],
+];

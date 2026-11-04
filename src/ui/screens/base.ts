@@ -1,5 +1,5 @@
-// База ПБ: кликер по ратуше (профкоины себе, опыт — общему ПБ), награда за лекцию, бой, стычка.
-import { stageLabel, MAX_STAGE } from '../../config/campaign';
+// База ПБ: кликер по ратуше (профкоины себе, опыт — общему ПБ), награда за блоки. По бокам — развлечения (бой, карта, игры)
+// и ПБ/рейтинг/помощь; главное (задания, QR, подготовка, мерч) — в нижнем меню.
 import { factionById } from '../../config/factions';
 import { IDLE } from '../../config/economy';
 import { BUILDINGS, buildingLevel, type BuildingId } from '../../config/clan';
@@ -14,16 +14,11 @@ import { chapterOf } from '../../config/campaign';
 import { haptic } from '../../core/telegram';
 import { $, el, esc, floatText, fmt, mmss, onAct, toast } from '../../lib/dom';
 import type { App } from '../app';
-import { openBattle } from './battle';
 import { openGift, openRating, openTrip, giftAvailable, openLive } from './modals';
 import { openClan, openUpgrades } from './clan';
-import { openTasks } from './tasks';
-import { openScan } from './scan';
-import { openNotes } from './notes';
 import { openProfile } from './profile';
 import { openStaff } from './staff';
-import { openPrep } from './prep';
-import { nextRoundAt } from '../../core/world';
+import { openHelp } from '../tour';
 
 const KIND_ICON = { info: 'info', alert: 'bolt', win: 'trophy' } as const;
 
@@ -57,15 +52,16 @@ export function renderBase(app: App) {
     </div>
 
     <div class="side l">
-      <button data-act="tasks" aria-label="Задания"><div class="sq">${icon('clipboard', 24)}</div><span class="lbl">Задания</span></button>
-      <button data-act="lecture" aria-label="Отметка по QR"><div class="sq hl">${icon('qr', 24)}<span class="badge hidden" data-lbadge>!</span></div><span class="lbl">QR</span></button>
-      <button data-act="prep" aria-label="Подготовка"><div class="sq">${icon('book', 24)}</div><span class="lbl">Подготовка</span></button>
+      <button data-act="squad" aria-label="Отряд и бой"><div class="sq">${icon('sword', 24)}</div><span class="lbl">Бой</span></button>
+      <button data-act="map" aria-label="Карта кампуса"><div class="sq">${icon('map', 24)}</div><span class="lbl">Карта</span></button>
+      <button data-act="games" aria-label="Мини-игры"><div class="sq">${icon('gamepad', 24)}</div><span class="lbl">Игры</span></button>
     </div>
     <div class="side r">
       ${app.backend.staff ? `<button data-act="staff" aria-label="Панель организатора"><div class="sq" style="border-color:var(--gold)">${icon('shield', 24, '#ffd76a')}</div><span class="lbl">Орг.</span></button>` : ''}
-      <button data-act="notes" data-notes aria-label="Ответы организаторов"><div class="sq">${icon('info', 24)}<span class="badge hidden" data-nbadge></span></div><span class="lbl">Ответы</span></button>
       <button data-act="clan" aria-label="Моё ПБ"><div class="sq hl">${icon('users', 24)}</div><span class="lbl">Моё ПБ</span></button>
+      <button data-act="rating" aria-label="Рейтинг"><div class="sq">${icon('trophy', 24)}</div><span class="lbl">Рейтинг</span></button>
       <button data-act="gift" aria-label="Подарок"><div class="sq">${icon('gift', 24)}${gift ? '<span class="badge">1</span>' : ''}</div><span class="lbl">Подарок</span></button>
+      <button data-act="help" aria-label="Как играть"><div class="sq">${icon('info', 24)}</div><span class="lbl">Помощь</span></button>
     </div>
 
     <div class="tap-zone" data-tap aria-label="Тапай по ратуше">
@@ -99,10 +95,6 @@ export function renderBase(app: App) {
         </div>
         <button class="btn btn-green btn-sm" data-act="claim">Забрать</button>
       </div>
-      <div class="fight">
-        <button class="btn btn-gold go btn-col" data-act="fight">${s.stage > MAX_STAGE ? 'ПОВТОР' : 'В БОЙ'}<span class="sub">${esc(stageLabel(Math.min(s.stage, MAX_STAGE)))}</span></button>
-        <button class="btn btn-blue skirm" data-act="skirm">${icon('clock', 20)}<b>Стычка</b><span class="small" data-skirm></span></button>
-      </div>
     </div>
   </div>`);
 
@@ -126,10 +118,6 @@ export function renderBase(app: App) {
     $(node, '[data-text]').innerHTML = p.coins > 0
       ? `Отряд заработал +${fmt(p.coins)}${p.scrolls ? `, +${p.scrolls} свит.` : ''}${p.full ? ' · <b style="color:var(--red)">полно</b>' : ''}`
       : `${fmt(coinsPerHour(s))} профкоинов в час`;
-    const ns = nextRoundAt();
-    const sk = $(node, '[data-skirm]');
-    if (!ns) sk.textContent = 'итоги подведены';
-    else { const d = ns - Date.now(); sk.textContent = `через ${d >= 3600_000 ? `${Math.floor(d / 3600_000)}:` : ''}${mmss(d % 3600_000)}`; }
     drawEnergy();
   };
   tick();
@@ -197,10 +185,6 @@ export function renderBase(app: App) {
   };
   live.addEventListener('live', drawLive);
   drawLive();
-  const nb = $(node, '[data-nbadge]');
-  const drawNotes = () => { const n = app.notes.filter((x) => !x.read).length; nb.textContent = String(n); nb.classList.toggle('hidden', !n); };
-  $(node, '[data-notes]').addEventListener('notes', drawNotes);
-  drawNotes();
 
   // ---------- место ПБ и открытые отметки ----------
   app.cached('lb', 60_000, () => app.backend.leaderboard(s)).then(({ factions }) => {
@@ -208,11 +192,7 @@ export function renderBase(app: App) {
     const pl = node.querySelector('[data-place]');
     if (pl && i >= 0) pl.textContent = ` · ${i + 1}-е место`;
   }).catch(() => {});
-  const checkLect = () => app.cached('lect', 25_000, () => app.backend.lecturesOpen()).then((ls) => {
-    const open = ls.filter((l) => !s.lectures.includes(l.id));
-    node.querySelector('[data-lbadge]')?.classList.toggle('hidden', !open.length);
-  }).catch(() => {});
-  checkLect();
+  const checkLect = () => app.drawNavBadges();
   let n = 0;
   app.onTick(() => { if (++n % 30 === 0) checkLect(); if (n % 60 === 0) refreshClan(); });
   const refreshClan = async () => {
@@ -249,15 +229,13 @@ export function renderBase(app: App) {
     },
     upg: () => openUpgrades(app),
     clan: () => openClan(app),
-    fight: () => openBattle(app),
-    skirm: () => app.go('map'),
+    squad: () => app.go('squad'),
+    map: () => app.go('map'),
+    games: () => app.go('games'),
     shop: () => app.go('shop'),
     rating: () => openRating(app),
-    tasks: () => openTasks(app),
-    lecture: () => openScan(app),
-    notes: () => openNotes(app),
     trip: () => openTrip(app),
-    prep: () => openPrep(app),
+    help: () => openHelp(app),
     gift: () => openGift(app),
     live: () => openLive(app),
     profile: () => openProfile(app),

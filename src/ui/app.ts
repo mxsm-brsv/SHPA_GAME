@@ -11,10 +11,16 @@ import { renderSquad } from './screens/squad';
 import { renderGames } from './screens/games';
 import { renderMap } from './screens/map';
 import { renderShop } from './screens/shop';
+import { renderTasks } from './screens/tasks';
+import { renderQr } from './screens/scan';
+import { renderPrep } from './screens/prep';
+import { maybeStartTour } from './tour';
 import { renderLogin, showWelcome } from './screens/login';
 import { openProjector } from './screens/projector';
 
-export type Tab = 'squad' | 'map' | 'base' | 'games' | 'shop';
+/** Нижнее меню — главное для школы; Отряд, Карта и Игры — развлечения, открываются кнопками по бокам базы. */
+export type Tab = 'tasks' | 'qr' | 'base' | 'prep' | 'shop' | 'squad' | 'map' | 'games';
+const SECONDARY: Tab[] = ['squad', 'map', 'games'];
 
 /** Как часто отправлять накопленный вклад в ПБ и сохранять прогресс (мс). Меньше запросов — легче серверу. */
 const FLUSH_MS = 6000;
@@ -61,6 +67,7 @@ export class App {
 
   async start() {
     await initTelegram();
+    telegram()?.BackButton?.onClick(this.backHandler);
     this.startParam = telegram()?.initDataUnsafe.start_param ?? new URLSearchParams(location.search).get('startapp') ?? '';
     this.root.innerHTML = `<div class="screen full" style="display:grid;place-items:center"><div class="center muted">Загрузка…</div></div>`;
     this.cfg = await this.backend.config().catch(() => this.cfg);
@@ -132,6 +139,7 @@ export class App {
       if (fresh.some((n) => n.kind === 'ok')) this.update(!this.overlay);
     }
     this.root.querySelectorAll<HTMLElement>('[data-notes]').forEach((n) => n.dispatchEvent(new CustomEvent('notes')));
+    this.drawNavBadges();
   }
 
   /** Отправляет накопленный вклад в здание ПБ (раз в несколько секунд, пачкой). */
@@ -161,7 +169,11 @@ export class App {
     this.root.appendChild(this.navEl);
     this.render();
     await this.dailyLogin();
+    maybeStartTour(this);
   }
+
+  /** Игрок вошёл и видит нижнее меню (а не экран входа). */
+  get inGame() { return !!this.state && !!this.navEl; }
 
   applyTheme() {
     const f = factionById(this.state.faction);
@@ -192,11 +204,35 @@ export class App {
     this.tickFns.clear();
     const s = this.state;
     rollDay(s);
-    const make = { base: renderBase, squad: renderSquad, games: renderGames, map: renderMap, shop: renderShop }[this.tab];
+    const make = { base: renderBase, squad: renderSquad, games: renderGames, map: renderMap, shop: renderShop, tasks: renderTasks, qr: renderQr, prep: renderPrep }[this.tab];
     const next = make(this);
     if (this.screenEl) { this.screenEl.dispatchEvent(new CustomEvent('detach')); this.screenEl.replaceWith(next); } else this.root.insertBefore(next, this.navEl);
     this.screenEl = next;
-    this.navEl?.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.tab === this.tab));
+    // развлечения живут «на базе»: подсвечиваем её и даём кнопку «назад» Telegram
+    const navTab = SECONDARY.includes(this.tab) ? 'base' : this.tab;
+    this.navEl?.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.tab === navTab));
+    this.syncBack();
+    this.drawNavBadges();
+  }
+
+  /** Кнопка «назад» Telegram: закрывает окно поверх игры или возвращает с развлечений на базу. */
+  private syncBack() {
+    const bb = telegram()?.BackButton;
+    if (!bb) return;
+    if (this.overlay || SECONDARY.includes(this.tab)) bb.show(); else bb.hide();
+  }
+
+  /** Значки на нижнем меню: непрочитанные ответы и открытые QR-отметки. */
+  drawNavBadges() {
+    if (!this.navEl || !this.state) return;
+    const unread = this.notes.filter((n) => !n.read).length;
+    const t = this.navEl.querySelector<HTMLElement>('[data-tab="tasks"] .nbadge');
+    if (t) { t.textContent = String(unread); t.classList.toggle('hidden', !unread); }
+    this.cached('lect', 25_000, () => this.backend.lecturesOpen()).then((ls) => {
+      const open = ls.filter((l) => !l.mine && !this.state.lectures.includes(l.id)).length;
+      const q = this.navEl?.querySelector<HTMLElement>('[data-tab="qr"] .nbadge');
+      if (q) { q.textContent = open ? '!' : ''; q.classList.toggle('hidden', !open); }
+    }).catch(() => {});
   }
 
   /** После изменения состояния: перерисовать и сохранить не чаще раза в 15 секунд. */
@@ -218,19 +254,17 @@ export class App {
     this.closeOverlay(false);
     this.overlay = node;
     this.root.appendChild(node);
-    const bb = telegram()?.BackButton;
-    if (bb) { bb.show(); bb.onClick(this.backHandler); }
+    this.syncBack();
   }
 
-  private backHandler = () => this.closeOverlay();
+  private backHandler = () => { if (this.overlay) this.closeOverlay(); else if (SECONDARY.includes(this.tab)) this.go('base'); };
 
   closeOverlay(rerender = true) {
     if (!this.overlay) return;
     this.overlay.dispatchEvent(new CustomEvent('close'));
     this.overlay.remove();
     this.overlay = null;
-    const bb = telegram()?.BackButton;
-    if (bb) { bb.offClick(this.backHandler); bb.hide(); }
+    this.syncBack();
     if (rerender && this.state && this.navEl) this.render();
     if (this.state) this.update(false);
   }
@@ -248,8 +282,8 @@ export class App {
 
   private buildNav() {
     const item = (tab: Tab, ic: string, label: string) =>
-      `<button data-tab="${tab}" data-act="tab" class="${tab === 'base' ? 'home' : ''}" aria-label="${label}">${icon(ic, tab === 'base' ? 26 : 24)}<span>${esc(label)}</span></button>`;
-    const nav = el(`<nav class="nav">${item('squad', 'users', 'Отряд')}${item('map', 'map', 'Карта')}${item('base', 'home', 'База')}${item('games', 'gamepad', 'Игры')}${item('shop', 'bag', 'Магазин')}</nav>`);
+      `<button data-tab="${tab}" data-act="tab" class="${tab === 'base' ? 'home' : ''}" aria-label="${label}">${icon(ic, tab === 'base' ? 26 : 24)}<span>${esc(label)}</span>${tab === 'tasks' || tab === 'qr' ? '<i class="nbadge hidden"></i>' : ''}</button>`;
+    const nav = el(`<nav class="nav">${item('tasks', 'clipboard', 'Задания')}${item('qr', 'qr', 'QR')}${item('base', 'home', 'База')}${item('prep', 'book', 'Подготовка')}${item('shop', 'bag', 'Мерч')}</nav>`);
     onAct(nav, { tab: (t) => this.go(t.dataset.tab as Tab) });
     return nav;
   }

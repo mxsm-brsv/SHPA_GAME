@@ -64,6 +64,7 @@ export async function drawQrStation(app: App, body: HTMLElement, onChange: () =>
         rotating: ($(body, '[data-rot]') as HTMLInputElement).checked,
       });
       haptic('ok');
+      if (l.existing) toast(`Такая отметка уже открыта${l.openedByName ? ` (${l.openedByName})` : ''} — показываю её QR`, 'info');
       showQr(app, l, onChange);
       onChange();
     } catch (e) { toast((e as Error).message, 'bad'); }
@@ -74,7 +75,7 @@ export async function drawQrStation(app: App, body: HTMLElement, onChange: () =>
   const box = $(body, '[data-ll]');
   box.innerHTML = ls.slice(0, 30).map((l) => {
     const open = l.closesAt > now;
-    return `<div class="card row" style="${open ? 'border-color:var(--green)' : ''}"><div class="grow"><b>${esc(l.title)}</b> <span class="small muted">· +${l.points}${l.maxClaims ? ` · первым ${l.maxClaims}` : ''}${l.rotating === false ? ' · статичный' : ''}</span>
+    return `<div class="card row" style="${open ? 'border-color:var(--green)' : ''}"><div class="grow"><b>${esc(l.title)}</b> <span class="small muted">· +${l.points}${l.maxClaims ? ` · первым ${l.maxClaims}` : ''}${l.rotating === false ? ' · статичный' : ''}${l.openedByName ? ` · ${esc(l.openedByName)}` : ''}</span>
       <div class="small ${open ? 'gold' : 'muted'}">${open ? `открыта ещё ${leftText(l.closesAt - now)}` : `закрыта · ${new Date(l.openedAt + 3 * 3600_000).toISOString().slice(11, 16)}`} · отметились ${l.claims}</div></div>
       ${open ? `<button class="btn btn-gold btn-sm" data-show="${l.id}">QR</button><button class="btn btn-ghost btn-sm" data-close="${l.id}">Закрыть</button>` : ''}</div>`;
   }).join('') || '<div class="muted small">Ещё не открывали</div>';

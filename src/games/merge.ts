@@ -35,9 +35,11 @@ export function openMerge(app: App, ctx?: PlayCtx) {
   const bEl = node.querySelector<HTMLElement>('[data-b]')!;
   const oEl = node.querySelector<HTMLElement>('[data-o]')!;
 
-  const item = (t: number) => `<div class="mr-item" style="background:${TIERS[t].color}"><span>${TIERS[t].icon}</span><small>${esc(TIERS[t].name)}</small></div>`;
+  const item = (t: number, fx = '') => `<div class="mr-item ${fx}" style="background:${TIERS[t].color}"><span>${TIERS[t].icon}</span><small>${esc(TIERS[t].name)}</small></div>`;
+  let fx: { i: number; cls: string } | null = null;
   const draw = () => {
-    bEl.innerHTML = board.map((t, i) => `<div class="mr-cell" data-c="${i}">${t === null ? '' : item(t)}</div>`).join('');
+    bEl.innerHTML = board.map((t, i) => `<div class="mr-cell" data-c="${i}">${t === null ? '' : item(t, fx?.i === i ? fx.cls : '')}</div>`).join('');
+    fx = null;
     oEl.innerHTML = orders.map((o, i) => `<div class="mr-order" data-o="${i}">${item(o.tier)}<div class="small"><b>Заказ</b><br>+${o.reward}</div></div>`).join('');
     node.querySelector<HTMLElement>('[data-en]')!.textContent = `ещё ${energy} · выдать скрепку`;
     node.querySelector<HTMLElement>('[data-chain]')!.innerHTML = TIERS.map((t) => t.icon).join(' → ');
@@ -49,7 +51,9 @@ export function openMerge(app: App, ctx?: PlayCtx) {
     if (energy <= 0) { toast('Бумага в принтере закончилась', 'bad'); return; }
     const free = board.map((v, i) => (v === null ? i : -1)).filter((i) => i >= 0);
     if (!free.length) { toast('Нет места — слей что-нибудь', 'bad'); return; }
-    board[free[Math.floor(Math.random() * free.length)]] = Math.random() < 0.12 ? 1 : 0;
+    const at = free[Math.floor(Math.random() * free.length)];
+    board[at] = Math.random() < 0.12 ? 1 : 0;
+    fx = { i: at, cls: 'spawn' };
     energy--;
     haptic();
     draw();
@@ -74,6 +78,10 @@ export function openMerge(app: App, ctx?: PlayCtx) {
     const ghost = el(`<div class="mr-ghost">${item(board[i]!)}</div>`);
     document.body.appendChild(ghost);
     drag = { from: i, ghost };
+    // подсветить, куда можно положить: такие же вещи и подходящий заказ
+    bEl.querySelectorAll<HTMLElement>('[data-c]').forEach((x) => { const j = Number(x.dataset.c); x.classList.toggle('match', j !== i && board[j] === board[i] && board[i]! < TIERS.length - 1); });
+    oEl.querySelectorAll<HTMLElement>('[data-o]').forEach((x) => x.classList.toggle('match', orders[Number(x.dataset.o)]?.tier === board[i]));
+    c.classList.add('lift');
     mv(e);
   });
   const mv = (e: PointerEvent) => { if (drag) drag.ghost.style.transform = `translate(${e.clientX - 32}px, ${e.clientY - 60}px)`; };
@@ -98,7 +106,13 @@ export function openMerge(app: App, ctx?: PlayCtx) {
       const j = Number(cell.dataset.c);
       if (j !== d.from) {
         if (board[j] === null) { board[j] = t; board[d.from] = null; }
-        else if (board[j] === t && t < TIERS.length - 1) { board[j] = t + 1; board[d.from] = null; score += 5 * 2 ** (t + 1); haptic('ok'); }
+        else if (board[j] === t && t < TIERS.length - 1) {
+          board[j] = t + 1; board[d.from] = null; score += 5 * 2 ** (t + 1); haptic('ok'); fx = { i: j, cls: 'pop' };
+          const r = cell.getBoundingClientRect();
+          const f = el(`<div class="tap-float" style="position:fixed;left:${r.left + r.width / 2}px;top:${r.top}px;z-index:210">+${5 * 2 ** (t + 1)}</div>`);
+          document.body.appendChild(f); setTimeout(() => f.remove(), 800);
+          if (t + 1 === TIERS.length - 1) toast(`Собрано: ${TIERS[t + 1].name}! ${TIERS[t + 1].icon}`, 'ok');
+        }
         else { const tmp = board[j]; board[j] = t; board[d.from] = tmp; }
       }
     }

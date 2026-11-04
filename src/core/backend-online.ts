@@ -15,6 +15,7 @@ import { fetchLiveJson, parseMerchLines, parseRosterLines } from './backend-demo
 import type {
   Announcement, Backend, ClanView, FactionRow, GameConfig, LeaderRow, LectureSession, LoginParams, LoginResult,
   MySubmission, Note, PlayerRef, QrSessionInput, RosterRow, SharedTest, Submission, SubmitResult, TaskPayload, UserQuestion, Wallet,
+  DutyZone, TeamMember,
 } from './backend';
 
 interface MeRow { id: string; username: string; faction: FactionId | null; rating: number; state: unknown; role: Role; secret: string; contributed: number }
@@ -281,6 +282,10 @@ export class OnlineBackend implements Backend {
     // Telegram-уведомление от бота — не критично, если не дошло (в игре оно уже есть)
     this.sb.fnUser('notify', { submission: Number(id) }).catch(() => {});
   }
+  async staffClaim(n: number) { return (await this.rpc<number>('staff_claim', { p_n: n })) ?? 0; }
+  async staffRelease() { await this.rpc('staff_release'); }
+  async staffTeam() { return (await this.rpc<TeamMember[]>('staff_team').catch(() => [])) ?? []; }
+  async staffSetDuty(zone: DutyZone, note: string) { await this.rpc('staff_set_duty', { p_zone: zone, p_note: note }); }
   async staffFindPlayers(q: string) { return (await this.rpc<PlayerRef[]>('staff_find_players', { p_q: q }).catch(() => [])) ?? []; }
   async staffGrant(playerId: string, task: string, amount: number, note?: string) {
     await this.rpc('staff_grant', { p_player: playerId, p_amount: amount, p_task: task, p_note: note ?? null });

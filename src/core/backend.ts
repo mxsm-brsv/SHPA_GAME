@@ -11,7 +11,10 @@ export interface LeaderRow { name: string; faction: FactionId | null; rating: nu
 export interface FactionRow { faction: FactionId; players: number; limit: number; rating: number; influence: number; xp: number; ratusha: number; score: number }
 export interface LoginParams { fio: string; group: string; staffCode?: string }
 export interface LoginResult { state: GameState | null; tgName?: string; needLogin?: boolean; error?: string; staff?: boolean; admin?: boolean }
-export interface Submission { id: string; player: string; playerId?: string; faction: FactionId | null; task: string; text?: string; photo?: string; at: number; status: 'pending' | 'approved' | 'rejected'; rating?: number; note?: string }
+export interface Submission { id: string; player: string; playerId?: string; faction: FactionId | null; task: string; text?: string; photo?: string; at: number; status: 'pending' | 'approved' | 'rejected'; rating?: number; note?: string; /** кто из организаторов взял сдачу в работу (на 10 минут) */ claimedBy?: string | null; claimedMine?: boolean }
+/** Зона дежурства организатора: чтобы не делать одно и то же вдвоём. */
+export type DutyZone = 'mod' | 'qr' | 'merch' | 'live' | 'map' | 'help' | 'free';
+export interface TeamMember { id: string; name: string; role: Role; me: boolean; zone: DutyZone; note: string; at: number; reviewed: number; holding: number; qrOpen: number }
 export interface SubmitResult { status: 'approved' | 'pending' | 'rejected' | 'error'; granted?: number; message: string }
 export interface PlayerRef { id: string; name: string; faction: FactionId | null; rating: number }
 export interface TaskPayload { text?: string; link?: string; photo?: Blob; value?: number; quiz?: string }
@@ -29,6 +32,8 @@ export interface LectureSession {
   kind: QrKind; maxClaims: number; rotating: boolean;
   /** Статичный код (для печати) — только у организатора */
   code?: string;
+  /** Кто открыл (видят организаторы) и признак «такая уже была открыта — показана она» */
+  openedByName?: string; existing?: boolean;
 }
 export interface Announcement { id: string; text: string; kind: 'info' | 'alert' | 'win'; at: number; until?: number | null; author?: string; source?: 'staff' | 'claude' }
 export interface RosterRow { id: string; fio: string; faction: FactionId; group: string; role: Role; bound: boolean; tg?: boolean }
@@ -94,6 +99,11 @@ export interface Backend {
   liveFeed(): Promise<Announcement[]>;
   // ---- организатор ----
   staffSubmissions(): Promise<Submission[]>;
+  /** Взять в работу до n свободных сдач; ответ — сколько теперь у меня. */
+  staffClaim(n: number): Promise<number>;
+  staffRelease(): Promise<void>;
+  staffTeam(): Promise<TeamMember[]>;
+  staffSetDuty(zone: DutyZone, note: string): Promise<void>;
   staffReview(id: string, ok: boolean, rating: number, note?: string): Promise<void>;
   staffQuestions(): Promise<UserQuestion[]>;
   staffQuestionReview(id: string, ok: boolean): Promise<void>;

@@ -12,7 +12,7 @@ import { compressImage } from '../../lib/image';
 import { $, el, esc, modal, onAct, toast } from '../../lib/dom';
 import { openCaseOfDay, quizFlow } from '../../games/law';
 import type { App } from '../app';
-import { openScan, redeemAny } from './scan';
+import { redeemAny } from './scan';
 import { openNotes } from './notes';
 
 const CHECK_TEXT: Record<TaskDef['check'], string> = {
@@ -35,20 +35,45 @@ function status(app: App, t: TaskDef): 'done' | 'pending' | 'open' | 'host' {
   return 'open';
 }
 
-export function openTasks(app: App) {
-  const node = el(`<div class="screen full"><div class="page">
-    <div class="row"><button class="btn btn-ghost btn-sm" data-act="exit" aria-label="Назад">${icon('back', 18)}</button><h1 class="grow" style="font-size:24px">Задания выезда</h1></div>
+type DayFilter = 'today' | 'before' | 'nov7' | 'nov8' | 'creative' | 'all';
+let dayFilter: DayFilter = 'today';
+
+/** Какой день выезда сегодня (по Москве): до 7 ноября — подготовка. */
+function todayKey(): 'before' | 'nov7' | 'nov8' {
+  const d = mskDay();
+  return d >= '2026-11-08' ? 'nov8' : d >= '2026-11-07' ? 'nov7' : 'before';
+}
+
+/** Задания — вкладка нижнего меню. */
+export function renderTasks(app: App) {
+  const node = el(`<div class="screen"><div class="page">
+    <div class="row"><h1 class="grow" style="font-size:24px">Задания</h1><span class="pill" data-sum></span></div>
     <div class="row" style="gap:8px">
-      <button class="btn btn-gold grow btn-col" data-act="scan">${icon('camera', 22)}<span class="sub">${canScanAny() ? 'Сканировать' : 'Ввести код'}</span></button>
-      <button class="btn btn-blue grow btn-col" data-act="myqr">${icon('qr', 22)}<span class="sub">Мой QR</span></button>
+      <button class="btn btn-blue grow btn-col" data-act="notes" data-notes>${icon('info', 22)}<span class="sub">Ответы</span><span class="badge hidden" data-nbadge></span></button>
       <button class="btn btn-blue grow btn-col" data-act="code">${icon('sparkle', 22)}<span class="sub">Кодовое слово</span></button>
-      <button class="btn btn-blue grow btn-col" data-act="notes">${icon('info', 22)}<span class="sub">Ответы</span></button>
+      <button class="btn btn-blue grow btn-col" data-act="myqr">${icon('qr', 22)}<span class="sub">Мой QR</span></button>
     </div>
-    <div class="small muted">Баллы за задания — сверх лимита игры (${DAILY_GAME_RATING_CAP} в сутки). Сдачи проверяют организаторы — придёт уведомление «принято» или «не принято».</div>
+    <div class="howto small"><b>Как это работает.</b> Выбери задание → «Сдать» (фото, ссылка или текст). Организатор проверит, ответ придёт в «Ответы» и сообщением бота. Отметки на блоках — во вкладке <b>QR</b> внизу.</div>
+    <div class="chips" data-days>${([['today', 'Сегодня'], ['before', 'До выезда'], ['nov7', '7 ноября'], ['nov8', '8 ноября'], ['creative', 'Творческие'], ['all', 'Все']] as [DayFilter, string][])
+      .map(([k, n]) => `<button class="chip ${k === dayFilter ? 'on' : ''}" data-act="day" data-v="${k}">${n}</button>`).join('')}</div>
     <div data-list></div>
   </div></div>`);
+  const days = (): (typeof TASKS[number]['day'])[] => {
+    if (dayFilter === 'all') return ['before', 'nov7', 'nov8', 'both', 'creative'];
+    if (dayFilter === 'today') return [todayKey(), 'both', 'creative'];
+    return [dayFilter];
+  };
   const draw = () => {
-    $(node, '[data-list]').innerHTML = (['before', 'nov7', 'nov8', 'both', 'creative'] as const).map((d) => `<div class="section-h">${DAY_TITLES[d]}</div><div class="list" style="margin-top:6px">${TASKS.filter((t) => t.day === d).map((t) => {
+    const shown = TASKS.filter((t) => days().includes(t.day));
+    const done = shown.filter((t) => status(app, t) === 'done').length;
+    const pend = TASKS.filter((t) => status(app, t) === 'pending').length;
+    $(node, '[data-sum]').innerHTML = `✓ ${done}/${shown.length}${pend ? ` · ⏳ ${pend}` : ''}`;
+    node.querySelectorAll<HTMLElement>('[data-days] .chip').forEach((c) => c.classList.toggle('on', c.dataset.v === dayFilter));
+    $(node, '[data-list]').innerHTML = days().map((d) => {
+      const list = TASKS.filter((t) => t.day === d);
+      // невыполненные — наверх
+      list.sort((a, b) => Number(status(app, a) === 'done') - Number(status(app, b) === 'done'));
+      return `<div class="section-h">${DAY_TITLES[d]}</div><div class="list" style="margin-top:6px">${list.map((t) => {
       const st = status(app, t);
       const n = doneCount(app, t);
       const last = lastSub(t);
@@ -60,24 +85,27 @@ export function openTasks(app: App) {
       return `<div class="li ${st === 'done' ? 'task-done' : ''}" style="align-items:flex-start">
         <div class="grow col" style="gap:3px"><div class="small muted">${esc(t.when)} · ${CHECK_TEXT[t.check]}</div>
           <div style="font-weight:600;line-height:1.3">${esc(t.title)}</div><div class="small muted">${esc(t.how)} · <b class="gold">${esc(t.rating)}</b></div>${rej}</div>${btn}</div>`;
-    }).join('')}</div>`).join('');
+    }).join('')}</div>`;
+    }).join('') + `<div class="small muted center" style="margin:12px 0">Баллы за задания — сверх лимита игр (${DAILY_GAME_RATING_CAP} в сутки).</div>`;
   };
+  const nb = $(node, '[data-nbadge]');
+  const drawNotes = () => { const n = app.notes.filter((x) => !x.read).length; nb.textContent = String(n); nb.classList.toggle('hidden', !n); };
+  $(node, '[data-notes]').addEventListener('notes', drawNotes);
+  drawNotes();
   draw();
   app.backend.mySubmissions(app.state).then((x) => { subsCache = x.sort((a, b) => b.at - a.at); draw(); }).catch(() => {});
   onAct(node, {
-    exit: () => app.closeOverlay(),
+    day: (t) => { dayFilter = t.dataset.v as DayFilter; draw(); },
     myqr: () => openMyQr(app),
-    scan: async () => {
-      const code = canScanAny() ? await scanAny() : null;
-      if (code === null) return openCodeInput(app, 'Код под QR, код тайника или знакомого', draw);
-      redeemAny(app, code, draw);
-    },
     code: () => openCodeInput(app, 'Кодовое слово из презентации', draw),
     notes: () => openNotes(app),
     do: (t) => doTask(app, TASKS.find((x) => x.id === t.dataset.id)!, draw),
   });
-  app.openOverlay(node);
+  return node;
 }
+
+/** Старый вход (кнопки в окнах): просто переключает на вкладку. */
+export function openTasks(app: App) { app.go('tasks'); }
 
 function actLabel(t: TaskDef) {
   if (t.check === 'qr') return 'Скан';
@@ -136,7 +164,7 @@ async function doTask(app: App, t: TaskDef, after: () => void) {
     return r;
   };
   if (t.check === 'qr') {
-    if (t.id === 'lecture' || t.id === 'speed_qr') return openScan(app);
+    if (t.id === 'lecture' || t.id === 'speed_qr') { app.go('qr'); return; }
     const code = canScanAny() ? await scanAny() : null;
     if (code === null) return openCodeInput(app, t.id === 'caches' || t.id === 'cache_gold' ? 'Код тайника' : 'Код под QR участника', after);
     return redeem(app, code, after);

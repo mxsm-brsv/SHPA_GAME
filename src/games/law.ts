@@ -167,6 +167,23 @@ export function openRing(app: App, ctx?: PlayCtx) {
   let i = 0, score = 0, right = 0, streak = 0;
   let stop = () => {};
   const scoreEl = $(node, '[data-score]');
+  // ринг: ты против «Правового нигилизма» — верный ответ бьёт его, ошибка — тебя
+  let hpMe = 100, hpFoe = 100;
+  const hud = el(`<div class="ring-hud"><div class="rh-side"><div class="rh-name">${esc(s.username.split(' ')[0])}</div><div class="rh-hp"><i data-me style="width:100%"></i></div></div>
+    <div class="rh-mid"><div class="rh-fighter me" data-fme>🥊</div><div class="rh-vs" data-combo>VS</div><div class="rh-fighter foe" data-ffoe>😈</div></div>
+    <div class="rh-side r"><div class="rh-name">Нигилизм</div><div class="rh-hp foe"><i data-foe style="width:100%"></i></div></div></div>`);
+  box.before(hud);
+  const hit = (ok: boolean, mult: number) => {
+    const who = hud.querySelector<HTMLElement>(ok ? '[data-ffoe]' : '[data-fme]')!;
+    const att = hud.querySelector<HTMLElement>(ok ? '[data-fme]' : '[data-ffoe]')!;
+    if (ok) hpFoe = Math.max(0, hpFoe - 10 * mult); else hpMe = Math.max(0, hpMe - 12);
+    hud.querySelector<HTMLElement>('[data-me]')!.style.width = `${hpMe}%`;
+    hud.querySelector<HTMLElement>('[data-foe]')!.style.width = `${hpFoe}%`;
+    att.classList.remove('punch'); who.classList.remove('hurt'); void who.offsetWidth;
+    att.classList.add('punch'); who.classList.add('hurt');
+    hud.querySelector<HTMLElement>('[data-combo]')!.innerHTML = streak >= 3 ? `🔥×${streak >= 5 ? 2 : 1.5}` : 'VS';
+    if (hpFoe <= 0) hud.querySelector<HTMLElement>('[data-ffoe]')!.textContent = '😵';
+  };
   const next = () => {
     if (i >= pool.length) return finish();
     const q = pool[i];
@@ -178,7 +195,8 @@ export function openRing(app: App, ctx?: PlayCtx) {
           right++; streak++;
           const mult = streak >= 5 ? 2 : streak >= 3 ? 1.5 : 1;
           score += Math.round((100 + r.timeLeft * 4) * mult);
-        } else streak = 0;
+          hit(true, mult);
+        } else { streak = 0; hit(false, 1); }
         scoreEl.textContent = `${score}`;
       },
       onNext: () => { i++; next(); },
@@ -188,7 +206,8 @@ export function openRing(app: App, ctx?: PlayCtx) {
     const value = right * RATING_PER_RIGHT;
     const got = await reportResult(app, 'ring', score, value, ctx);
     box.innerHTML = `<div class="card center col" style="gap:10px;padding:20px">
-      <h2 style="font-size:26px">${right >= 8 ? 'Чемпион ринга!' : right >= 5 ? 'Хороший бой' : 'Есть куда расти'}</h2>
+      <div style="font-size:44px">${hpFoe <= 0 ? '🏆' : hpMe <= 0 ? '🤕' : '🥊'}</div>
+      <h2 style="font-size:26px">${hpFoe <= 0 ? 'Нокаут! Нигилизм повержен' : right >= 8 ? 'Чемпион ринга!' : right >= 5 ? 'Хороший бой' : 'Есть куда расти'}</h2>
       <div style="font-family:var(--head);font-size:40px;color:var(--gold2)">${score}</div>
       <div>${right} из ${pool.length} верно</div>
       <div class="row" style="justify-content:center;gap:6px">${starSvg(18)}<b>+${got} баллов</b></div>

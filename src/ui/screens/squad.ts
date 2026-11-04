@@ -14,6 +14,8 @@ import type { HeroInst, Perks } from '../../core/state';
 import { haptic } from '../../core/telegram';
 import { $, el, esc, fmt, modal, onAct, toast } from '../../lib/dom';
 import type { App } from '../app';
+import { MAX_STAGE, stageLabel } from '../../config/campaign';
+import { openBattle } from './battle';
 
 let filter: HeroClass | 'all' = 'all';
 
@@ -43,6 +45,10 @@ export function renderSquad(app: App) {
     <div class="page-title"><h1>Отряд</h1><div class="row"><span class="pill">${coinSvg(18)}${fmt(s.coins)}</span><span class="pill" title="Кристаллы — только на умения">💎 ${s.crystals}</span><span class="pill">${scrollSvg(18)}${s.scrolls}</span></div></div>
     <div class="power-card">${icon('sword', 40, '#ffd76a')}<div class="grow"><div class="small muted">Сила отряда · ${s.squad.length}/${SQUAD_SIZE} · командир ур. ${commanderLevel(s.stage)}</div><div class="big">${fmt(pw.total)}</div>
       <div class="small muted">Состав ${fmt(pw.raw)}${pw.bonus ? ` · фракция и снаряжение +${Math.round(pw.bonus * 100)}%` : ''}</div></div></div>
+    <div class="fight" style="margin:0">
+      <button class="btn btn-gold go btn-col" data-act="fight">${s.stage > MAX_STAGE ? 'ПОВТОР' : 'В БОЙ'}<span class="sub">${esc(stageLabel(Math.min(s.stage, MAX_STAGE)))}</span></button>
+      <button class="btn btn-blue skirm" data-act="skirm">${icon('map', 20)}<b>Стычка</b><span class="small">на карте</span></button>
+    </div>
     <div class="tabs3">
       <button class="${tab === 'heroes' ? 'on' : ''}" data-act="tab" data-v="heroes">Активисты${freePerks ? ` <b class="dot">${freePerks}</b>` : ''}</button>
       <button class="${tab === 'skills' ? 'on' : ''}" data-act="tab" data-v="skills">Умения ${s.loadout.length}/${loadoutSlots(s.stage)}</button>
@@ -54,7 +60,7 @@ export function renderSquad(app: App) {
   if (tab === 'heroes') drawHeroes(app, body);
   else if (tab === 'skills') drawSkills(app, body);
   else drawGear(app, body);
-  onAct(node, { tab: (t) => { app.squadTab = t.dataset.v as App['squadTab']; app.render(); } });
+  onAct(node, { tab: (t) => { app.squadTab = t.dataset.v as App['squadTab']; app.render(); }, fight: () => openBattle(app), skirm: () => app.go('map') });
   return node;
 }
 

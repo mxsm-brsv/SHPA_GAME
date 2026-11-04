@@ -9,3 +9,4 @@ for f in supabase/tests/stub.sql supabase/migrations/*.sql; do psql -U postgres 
 psql -U postgres -d $DB -q -f supabase/tests/v2_test.sql
 psql -U postgres -d $DB -q -f supabase/tests/v3_test.sql
 psql -U postgres -d $DB -q -f supabase/tests/v4_test.sql
+psql -U postgres -d $DB -q -f supabase/tests/v5_test.sql

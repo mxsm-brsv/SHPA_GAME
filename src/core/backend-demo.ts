@@ -16,6 +16,7 @@ import { botEventScores, closeEvent, eventKey, eventSlot, forceEvent, newWorld, 
 import type {
   Announcement, Backend, ClanMember, ClanView, FactionRow, GameConfig, LeaderRow, LectureSession, LoginParams, LoginResult,
   MySubmission, Note, PlayerRef, QrSessionInput, RosterRow, SharedTest, Submission, SubmitResult, TaskPayload, UserQuestion, Wallet,
+  DutyZone, TeamMember,
 } from './backend';
 import bank from '@bank';
 
@@ -34,6 +35,7 @@ const LS_NOTES = 'pbgame.notes';
 const LS_SHARED = 'pbgame.sharedTests';
 const LS_UQ = 'pbgame.userQuestions';
 const LS_BANKX = 'pbgame.bankExtra';
+const LS_DUTY = 'pbgame.duty';
 /** Сколько заданий квиза засчитывать: intro — 10 вопросов, docs — 3. */
 const QUIZ_N: Record<string, number> = { intro_quiz: 10, docs_quiz: 3 };
 const QUIZ_TOPICS: Record<string, string[] | null> = { intro_quiz: ['Устав Профсоюза', 'Профсоюз: закон', 'Профсоюз: устройство и учёт', 'СКС Профсоюза'], docs_quiz: null };
@@ -492,7 +494,32 @@ export class DemoBackend implements Backend {
 
   // ---------- организатор (в демо — на самом себе) ----------
   private subs(): Submission[] { return lsJson<Submission[]>(LS_SUBS, []); }
-  async staffSubmissions() { return this.subs(); }
+  async staffSubmissions() {
+    // в демо проверяет один человек: всё, что он взял, — «у меня»
+    const mine = lsJson<string[]>(LS_DUTY + '.claims', []);
+    return this.subs().map((x) => ({ ...x, claimedBy: mine.includes(x.id) ? this.state?.username ?? 'я' : null, claimedMine: mine.includes(x.id) }));
+  }
+  async staffClaim(n: number) {
+    const pend = this.subs().filter((x) => x.status === 'pending').map((x) => x.id);
+    const mine = lsJson<string[]>(LS_DUTY + '.claims', []).filter((id) => pend.includes(id));
+    for (const id of pend) { if (mine.length >= n + mine.length || mine.includes(id)) continue; if (mine.length - 0 >= 20) break; mine.push(id); if (mine.filter((x) => pend.includes(x)).length >= n) break; }
+    lsSet(LS_DUTY + '.claims', JSON.stringify(mine));
+    return mine.length;
+  }
+  async staffRelease() { lsSet(LS_DUTY + '.claims', '[]'); }
+  async staffTeam(): Promise<TeamMember[]> {
+    const d = lsJson<{ zone: DutyZone; note: string; at: number }>(LS_DUTY, { zone: 'free', note: '', at: Date.now() });
+    const pend = this.subs().filter((x) => x.status === 'pending').map((x) => x.id);
+    const holding = lsJson<string[]>(LS_DUTY + '.claims', []).filter((id) => pend.includes(id)).length;
+    const qrOpen = this.lectures().filter((l) => l.closesAt > Date.now()).length;
+    const t = Date.now() - 20 * 60_000;
+    return [
+      { id: 'me', name: this.state?.username ?? 'Я', role: 'admin', me: true, zone: d.zone, note: d.note, at: d.at, reviewed: this.subs().filter((x) => x.status !== 'pending').length, holding, qrOpen },
+      { id: 'demo1', name: 'Анна (демо)', role: 'staff', me: false, zone: 'qr', note: 'блок 2, актовый', at: t, reviewed: 0, holding: 0, qrOpen: 0 },
+      { id: 'demo2', name: 'Илья (демо)', role: 'staff', me: false, zone: 'merch', note: 'стол выдачи', at: t, reviewed: 3, holding: 0, qrOpen: 0 },
+    ];
+  }
+  async staffSetDuty(zone: DutyZone, note: string) { lsSet(LS_DUTY, JSON.stringify({ zone, note: note.slice(0, 60), at: Date.now() })); }
   async staffReview(id: string, ok: boolean, rating: number, note?: string) {
     const subs = this.subs();
     const sub = subs.find((x) => x.id === id);
@@ -589,6 +616,8 @@ export class DemoBackend implements Backend {
 
   async staffLectureOpen(p: QrSessionInput) {
     const now = Date.now();
+    const same = this.lectures().find((l) => l.closesAt > now && l.kind === p.kind && l.title.trim().toLowerCase() === p.title.trim().toLowerCase());
+    if (same) return { ...same, existing: true, openedByName: this.state?.username };
     const minutes = Math.max(1, Math.min(p.rotating ? 180 : 24 * 60, Math.round(p.minutes)));
     const l: DemoLecture = { id: randomCode(8), title: p.title.slice(0, 80), points: Math.max(1, Math.min(LECTURE.maxPoints, Math.round(p.points))), openedAt: now, closesAt: now + minutes * 60_000, claims: 0, secret: randomSecret(), by: [],
       kind: p.kind, maxClaims: Math.max(0, Math.min(500, Math.round(p.maxClaims))), rotating: p.rotating, code: p.rotating ? undefined : randomCode(6) };

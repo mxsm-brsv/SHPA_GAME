@@ -15,16 +15,17 @@ export function openBus(app: App, ctx?: PlayCtx) {
   const rnd = () => colors[Math.floor(Math.random() * colors.length)].id;
   const queue: string[] = Array.from({ length: 18 }, rnd);
   const waiting: string[] = [];
-  const bays: { color: string; seats: number; leaving: number }[] = [0, 1, 2].map(() => ({ color: rnd(), seats: 0, leaving: 0 }));
+  const bays: { color: string; seats: number; leaving: number; arrive?: boolean; hop?: boolean }[] = [0, 1, 2].map(() => ({ color: rnd(), seats: 0, leaving: 0, arrive: true }));
   let seated = 0, combo = 0, left = TIME, over = false;
   const col = (id: string) => colors.find((c) => c.id === id)!;
 
   const node = el(`<div class="bus-game">
-    <div class="row small" style="justify-content:space-between"><b>Очередь</b><span class="gold" data-time></span></div>
+    <div class="row small" style="justify-content:space-between"><b>Очередь</b><span class="gold" data-combo></span><span class="gold" data-time></span></div>
+    <div class="al-bar"><i data-tbar style="width:100%"></i></div>
     <div class="bus-queue" data-q></div>
     <div class="row small" style="justify-content:space-between"><b>Зал ожидания</b><span class="muted" data-wn></span></div>
     <div class="bus-wait" data-w></div>
-    <div class="bus-bays" data-b></div>
+    <div class="bus-road"><div class="bus-bays" data-b></div></div>
     <button class="btn btn-blue btn-block" data-act-wait>Первого — в зал ожидания</button>
   </div>`);
   sh.body.appendChild(node);
@@ -34,11 +35,14 @@ export function openBus(app: App, ctx?: PlayCtx) {
     $(node, '[data-q]').innerHTML = queue.slice(0, 10).map((p, i) => person(p, i === 0)).join('');
     $(node, '[data-w]').innerHTML = Array.from({ length: WAIT }, (_, i) => waiting[i] ? person(waiting[i]) : '<div class="bus-p empty"></div>').join('');
     $(node, '[data-wn]').textContent = `${waiting.length}/${WAIT}`;
-    $(node, '[data-b]').innerHTML = bays.map((b, i) => `<button class="bus-bay ${b.leaving ? 'leaving' : ''}" data-bay="${i}" style="--bc:${col(b.color).c}">
+    $(node, '[data-combo]').textContent = combo >= 2 ? `комбо ×${combo}` : '';
+    $(node, '[data-b]').innerHTML = bays.map((b, i) => `<button class="bus-bay ${b.leaving ? 'leaving' : ''} ${b.arrive ? 'arrive' : ''} ${b.hop ? 'hop' : ''}" data-bay="${i}" style="--bc:${col(b.color).c}">
       <svg viewBox="0 0 120 70" width="100%"><rect x="4" y="8" width="112" height="46" rx="10" fill="${col(b.color).c}"/><rect x="12" y="16" width="96" height="16" rx="4" fill="#cfe6ff"/>
       ${Array.from({ length: SEATS }, (_, k) => `<circle cx="${24 + k * 24}" cy="24" r="6" fill="${k < b.seats ? '#15173d' : '#ffffff55'}"/>`).join('')}
-      <circle cx="30" cy="58" r="8" fill="#15173d"/><circle cx="90" cy="58" r="8" fill="#15173d"/></svg>
+      <rect x="100" y="36" width="10" height="8" rx="2" fill="#ffd76a"/><text x="60" y="48" text-anchor="middle" font-size="10" font-weight="800" fill="#fff" font-family="Rubik">ШПА</text>
+      <circle cx="30" cy="58" r="8" fill="#15173d"/><circle cx="30" cy="58" r="3" fill="#9aa3c7"/><circle cx="90" cy="58" r="8" fill="#15173d"/><circle cx="90" cy="58" r="3" fill="#9aa3c7"/></svg>
       <div class="small"><b>${col(b.color).name}</b> · ${b.seats}/${SEATS}</div></button>`).join('');
+    bays.forEach((b) => { b.arrive = false; b.hop = false; });
   };
 
   const board = (i: number) => {
@@ -49,7 +53,7 @@ export function openBus(app: App, ctx?: PlayCtx) {
     for (let k = 0; k < waiting.length && b.seats < SEATS; k++) if (waiting[k] === b.color) { waiting.splice(k, 1); k--; b.seats++; n++; }
     while (queue.length && queue[0] === b.color && b.seats < SEATS) { queue.shift(); b.seats++; n++; }
     if (!n) { haptic('bad'); combo = 0; left = Math.max(0, left - 2); toast('Первый в очереди не из этого ПБ: −2 с', 'bad'); draw(); return; }
-    seated += n; combo++;
+    seated += n; combo++; b.hop = true;
     haptic('ok');
     if (b.seats >= SEATS) { b.leaving = 0.7; seated += combo >= 3 ? 2 : 0; }
     refill(); draw();
@@ -72,7 +76,8 @@ export function openBus(app: App, ctx?: PlayCtx) {
     $(node, '[data-time]').textContent = `${Math.ceil(Math.max(0, left))} с`;
     sh.setScore(String(seated));
     let changed = false;
-    for (const b of bays) if (b.leaving) { b.leaving -= dt; if (b.leaving <= 0) { b.leaving = 0; b.seats = 0; b.color = queue[Math.floor(Math.random() * 3)] ?? rnd(); changed = true; } }
+    for (const b of bays) if (b.leaving) { b.leaving -= dt; if (b.leaving <= 0) { b.leaving = 0; b.seats = 0; b.arrive = true; b.color = queue[Math.floor(Math.random() * 3)] ?? rnd(); changed = true; } }
+    ($(node, '[data-tbar]') as HTMLElement).style.width = `${(Math.max(0, left) / TIME) * 100}%`;
     if (changed) draw();
     if (left <= 0) { finish(); return false; }
   });
