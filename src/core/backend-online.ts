@@ -350,9 +350,9 @@ export class OnlineBackend implements Backend {
   async staffRosterReset(id: string) { return this.rpc<string>('staff_roster_reset', { p_id: id }); }
   async staffSetSetting(key: 'shop_open' | 'require_group', value: boolean) { await this.rpc('staff_set_setting', { p_key: key, p_value: value }); this.cfg = null; }
   async adminResetProgress(confirm: string) {
-    const r = await this.rpc<{ players: number; submissions: number; orders: number; qr: number; epoch: number }>('admin_reset_progress', { p_confirm: confirm });
+    const r = await this.rpc<{ players: number; submissions: number; orders: number; qr: number; epoch: number; registrations?: number }>('admin_reset_progress', { p_confirm: confirm });
     this.frozen = true;
     syncEpoch(r.epoch);
-    return `Прогресс обнулён: игроков ${r.players}, сдач ${r.submissions}, заказов мерча ${r.orders} (возвращены на склад), QR-отметок ${r.qr}.`;
+    return `Сброшено всё: игроков ${r.players}, регистраций ${r.registrations ?? 0}, сдач ${r.submissions}, заказов мерча ${r.orders} (возвращены на склад), QR-отметок ${r.qr}. Входи заново по ФИО и коду организатора.`;
   }
 }

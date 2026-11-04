@@ -236,9 +236,9 @@ export function openStaff(app: App) {
       <div class="small muted">Режим: ${c.testMode ? '<b class="gold">тестовый</b> — стычки каждые 10 минут, мероприятие всегда идёт' : 'боевой, по расписанию выезда'}.</div></div>
       <button class="btn btn-gold btn-block" data-act="screen">${icon('trophy', 18)} Экран для актового</button>
       ${app.backend.admin ? `<div class="card col danger-zone" style="gap:8px"><b>Начать всё заново</b>
-        <div class="small muted">Обнулит у всех баллы, сдачи, QR-отметки, заказы мерча (вернутся на склад), карту и здания ПБ. Список выезда, входы, задания, вопросы и мерч останутся. Открытые у людей вкладки перезапустятся с нуля.</div>
+        <div class="small muted">Обнулит у всех баллы, сдачи, QR-отметки, заказы мерча (вернутся на склад), карту, здания ПБ <b>и регистрации</b>: все, включая организаторов и тебя, войдут заново по ФИО. Список выезда, роли, задания, вопросы и мерч останутся.</div>
         <input class="input-ans" data-reset-word placeholder="Впиши слово СБРОС" autocomplete="off">
-        <button class="btn btn-red btn-block" data-act="reset-all" disabled>${icon('bolt', 18)} Обнулить прогресс всех</button></div>` : ''}`;
+        <button class="btn btn-red btn-block" data-act="reset-all" disabled>${icon('bolt', 18)} Сбросить всё</button></div>` : ''}`;
     const word = body.querySelector<HTMLInputElement>('[data-reset-word]');
     const resetBtn = body.querySelector<HTMLButtonElement>('[data-act="reset-all"]');
     word?.addEventListener('input', () => { if (resetBtn) resetBtn.disabled = word.value.trim().toUpperCase() !== 'СБРОС'; });

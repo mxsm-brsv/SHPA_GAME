@@ -667,13 +667,8 @@ export class DemoBackend implements Backend {
     if (confirm.trim().toUpperCase() !== 'СБРОС') throw new Error('Для подтверждения введи слово СБРОС');
     this.frozen = true;
     try { [LS_WORLD, LS_SUBS, LS_CLAN, LS_ORDERS, LS_LECT, LS_LIVE, LS_NOTES, LS_DUTY, 'pbgame.prep'].forEach((k) => localStorage.removeItem(k)); } catch { /* приватный режим */ }
-    const old = this.state;
-    if (old) {
-      const st = newState(old.username);
-      Object.assign(st, { username: old.username, fio: old.fio, faction: old.faction, role: old.role });
-      lsSet(LS_KEY, JSON.stringify(st));
-    }
-    return 'Демо: прогресс на этом устройстве обнулён';
+    lsDel(LS_KEY); lsDel(LS_SESSION); // как на сервере: регистрация тоже сбрасывается — вход заново
+    return 'Демо: всё сброшено, войди заново';
   }
   async staffSetSetting(key: 'shop_open' | 'require_group', value: boolean) {
     const c = lsJson<Partial<GameConfig>>(LS_CFG, {});

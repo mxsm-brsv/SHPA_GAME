@@ -51,6 +51,8 @@ jobs:
         run: ./scripts/supabase-dburl.sh "$PROJECT_REF"
       - name: Миграции базы
         run: supabase db push --db-url "$DB_URL" --yes
+      - name: Сводка базы (только числа, без имён)
+        run: psql "$DB_URL" -qtAc "select public._db_summary()" || echo "::warning::Сводка недоступна"
       - name: Секреты функций
         run: |
           # «перец» для паролей входа создаётся один раз и больше не меняется

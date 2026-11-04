@@ -18,8 +18,8 @@ select setting_int('progress_epoch', 0) as epoch_before \gset
 do $$ begin perform admin_reset_progress('СБРОС'); exception when others then raise notice 'ожидаемо: %', sqlerrm; end $$;
 set test.uid = :'admin_id';
 do $$ begin perform admin_reset_progress('да'); exception when others then raise notice 'ожидаемо: %', sqlerrm; end $$;
-\echo '--- админ сбрасывает'
-select admin_reset_progress(' сброс ') - 'epoch' as report;
+\echo '--- сброс прогресса'
+select _reset_progress() - 'epoch' as report;  -- кнопка админа с v7 сбрасывает ещё и регистрации (v7_test)
 select (select coalesce(sum(rating), 0) from players) as rating_sum,
        (select count(*) from rating_log) as log_rows,
        (select count(*) from submissions) as subs,
