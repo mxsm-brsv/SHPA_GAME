@@ -11,10 +11,31 @@ interface Placed { w: string; clue: string; r: number; c: number; dir: 'h' | 'v'
 
 const norm = (w: string) => w.toUpperCase().replace(/Ё/g, 'Е');
 
+function bounds(ps: Placed[]) {
+  return {
+    r0: Math.min(...ps.map((p) => p.r)), c0: Math.min(...ps.map((p) => p.c)),
+    r1: Math.max(...ps.map((p) => p.r + (p.dir === 'v' ? p.w.length - 1 : 0))), c1: Math.max(...ps.map((p) => p.c + (p.dir === 'h' ? p.w.length - 1 : 0))),
+  };
+}
+
 function seeded(seed: number) { return () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }; }
 
-/** Простой генератор: кладём слова по одному, каждое новое — через пересечение с уже стоящими. */
+/** Кроссворд дня: из нескольких десятков раскладок берём самую компактную (почти квадратную),
+ *  чтобы клетки были крупными и сетка вместе с клавиатурой помещалась на экран телефона. */
 export function buildCrossword(seed: number, want = 8): Placed[] {
+  let best: Placed[] = [], bestScore = Infinity;
+  for (let k = 0; k < 48; k++) {
+    const p = layoutOnce(seed * 101 + k, want);
+    const rows = Math.max(...p.map((x) => x.r + (x.dir === 'v' ? x.w.length : 1)));
+    const cols = Math.max(...p.map((x) => x.c + (x.dir === 'h' ? x.w.length : 1)));
+    const score = (want - p.length) * 1000 + Math.max(rows, cols) * 10 + (rows * cols) / 50;
+    if (score < bestScore) { bestScore = score; best = p; }
+  }
+  return best;
+}
+
+/** Одна раскладка: кладём слова по одному через пересечения; из подходящих мест — то, что меньше раздувает сетку. */
+function layoutOnce(seed: number, want: number): Placed[] {
   const rnd = seeded(seed + 7);
   const pool = [...CROSS_WORDS].map((x) => ({ w: norm(x.w), clue: x.clue })).sort(() => rnd() - 0.5);
   const placed: Placed[] = [];
@@ -43,14 +64,18 @@ export function buildCrossword(seed: number, want = 8): Placed[] {
   for (const item of pool) {
     if (placed.length >= want) break;
     if (!placed.length) { put({ ...item, r: 0, c: 0, dir: 'h', n: 0 }); continue; }
-    let best: Placed | null = null;
+    let best: Placed | null = null, bestSpan = Infinity;
+    const box = bounds(placed);
     for (const p of placed) for (let i = 0; i < p.w.length; i++) for (let j = 0; j < item.w.length; j++) {
       if (p.w[i] !== item.w[j]) continue;
       const dir = p.dir === 'h' ? 'v' : 'h';
       const r = p.dir === 'h' ? p.r - j : p.r + i;
       const c = p.dir === 'h' ? p.c + i : p.c - j;
       const cr = canPlace(item.w, r, c, dir);
-      if (cr > 0 && (!best || rnd() < 0.5)) best = { ...item, r, c, dir, n: 0 };
+      if (cr <= 0) continue;
+      const r2 = r + (dir === 'v' ? item.w.length - 1 : 0), c2 = c + (dir === 'h' ? item.w.length - 1 : 0);
+      const span = Math.max(Math.max(box.r1, r2) - Math.min(box.r0, r), Math.max(box.c1, c2) - Math.min(box.c0, c)) - cr * 0.5 + rnd() * 0.9;
+      if (span < bestSpan) { bestSpan = span; best = { ...item, r, c, dir, n: 0 }; }
     }
     if (best) put(best);
   }
@@ -73,10 +98,24 @@ export function openCrossword(app: App, ctx?: PlayCtx) {
   let cur = 0, pos = 0, hints = 0, over = false;
   const doneKey = `crossword@${mskDay()}`;
   const sh = shell(app, 'crossword', ctx);
-  sh.setSub(s.tasks.done[doneKey] ? 'Кроссворд дня уже решён — можно пройти ещё раз без баллов' : 'Нажми на клетку, впиши слово. Подсказка открывает букву');
-  sh.body.innerHTML = `<div class="cw-wrap"><div class="cw-grid" style="grid-template-columns:repeat(${cols},1fr)" data-g></div>
-    <div class="cw-clue" data-clue></div><div class="row" style="gap:8px"><button class="btn btn-ghost btn-sm grow" data-prev>← Пред.</button><button class="btn btn-blue btn-sm grow" data-hint>Подсказка</button><button class="btn btn-ghost btn-sm grow" data-nextw>След. →</button></div></div>`;
+  sh.setSub(s.tasks.done[doneKey] ? 'Уже решён сегодня — можно ещё раз без баллов' : 'Тапни клетку и вводи слово');
+  sh.body.innerHTML = `<div class="cw-wrap"><div class="cw-box" data-box><div class="cw-grid" data-g></div></div>
+    <div class="cw-bar"><button class="cw-nav" data-prev aria-label="Предыдущее слово">‹</button><div class="cw-clue" data-clue></div><button class="cw-nav" data-nextw aria-label="Следующее слово">›</button></div></div>`;
   const gEl = sh.body.querySelector<HTMLElement>('[data-g]')!;
+  const boxEl = sh.body.querySelector<HTMLElement>('[data-box]')!;
+  // размер клетки — по свободному месту между шапкой и клавиатурой
+  const fit = () => {
+    const r = boxEl.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const gap = 2;
+    const cs = Math.max(16, Math.min(44, Math.floor(Math.min((r.width - gap * (cols - 1)) / cols, (r.height - gap * (rows - 1)) / rows))));
+    gEl.style.gridTemplateColumns = `repeat(${cols}, ${cs}px)`;
+    gEl.style.gridAutoRows = `${cs}px`;
+    gEl.style.setProperty('--cs', `${cs}px`);
+  };
+  const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(fit) : null;
+  ro?.observe(boxEl);
+  sh.onExit(() => ro?.disconnect());
   const cellOf = (p: Placed, i: number) => `${p.r + (p.dir === 'v' ? i : 0)},${p.c + (p.dir === 'h' ? i : 0)}`;
   const solved = (p: Placed) => [...p.w].every((ch, i) => typed.get(cellOf(p, i)) === ch);
   const draw = () => {
@@ -92,7 +131,7 @@ export function openCrossword(app: App, ctx?: PlayCtx) {
       h += `<button class="cw-c ${active.has(k) ? 'act' : ''} ${k === cellOf(w, pos) ? 'cur' : ''} ${ok ? 'ok' : ''}" data-k="${k}">${nums.has(k) ? `<i>${nums.get(k)}</i>` : ''}${t}</button>`;
     }
     gEl.innerHTML = h;
-    sh.body.querySelector('[data-clue]')!.innerHTML = `<b>${w.n}. ${w.dir === 'h' ? 'По горизонтали' : 'По вертикали'}</b> (${w.w.length} букв)<br>${esc(w.clue)}`;
+    sh.body.querySelector('[data-clue]')!.innerHTML = `<div class="cw-ch"><b>${w.n}. ${w.dir === 'h' ? 'По горизонтали' : 'По вертикали'}</b><span class="muted">${w.w.length} букв</span><button class="cw-hint" data-hint>💡 Буква</button></div><div class="cw-ct">${esc(w.clue)}</div>`;
     sh.setScore(`${words.filter(solved).length}/${words.length}`);
   };
   gEl.addEventListener('click', (e) => {
@@ -110,7 +149,8 @@ export function openCrossword(app: App, ctx?: PlayCtx) {
   const step = (d: number) => { cur = (cur + d + words.length) % words.length; pos = 0; draw(); };
   sh.body.querySelector('[data-prev]')!.addEventListener('click', () => step(-1));
   sh.body.querySelector('[data-nextw]')!.addEventListener('click', () => step(1));
-  sh.body.querySelector('[data-hint]')!.addEventListener('click', () => {
+  sh.body.querySelector('[data-clue]')!.addEventListener('click', (e) => {
+    if (!(e.target as HTMLElement).closest('[data-hint]')) return;
     const w = words[cur];
     const i = [...w.w].findIndex((ch, j) => typed.get(cellOf(w, j)) !== ch);
     if (i < 0) return;
@@ -124,7 +164,9 @@ export function openCrossword(app: App, ctx?: PlayCtx) {
     else { typed.set(cellOf(w, pos), norm(k)); pos = Math.min(w.w.length - 1, pos + 1); if (solved(w)) { haptic('ok'); const nx = words.findIndex((p) => !solved(p)); if (nx >= 0) { cur = nx; pos = 0; } } }
     draw(); check();
   }, { enter: '→' });
+  kb.el.classList.add('kb-cw');
   sh.body.appendChild(kb.el);
+  requestAnimationFrame(fit);
   const check = async () => {
     if (over || !words.every(solved)) return;
     over = true;

@@ -81,8 +81,11 @@ export function runTour(app: App, steps: TourStep[], key?: string, opts: { last?
     node.classList.remove('center');
     t.scrollIntoView({ block: 'nearest' });
     const r = t.getBoundingClientRect();
-    const pad = 6;
-    hole.style.cssText = `left:${r.left - R.left - pad}px;top:${r.top - R.top - pad}px;width:${r.width + pad * 2}px;height:${r.height + pad * 2}px`;
+    // рамка (с обводкой 4px) целиком внутри экрана, даже у кнопок у самого края и у нижнего меню
+    const pad = 6, edge = 6;
+    const L = Math.max(edge, r.left - R.left - pad), T = Math.max(edge, r.top - R.top - pad);
+    const Rt = Math.min(R.width - edge, r.right - R.left + pad), B = Math.min(R.height - edge, r.bottom - R.top + pad);
+    hole.style.cssText = `left:${L}px;top:${T}px;width:${Math.max(0, Rt - L)}px;height:${Math.max(0, B - T)}px`;
     const below = r.top + r.height / 2 - R.top < R.height / 2;
     if (below) card.style.top = `${Math.min(R.height - 200, r.bottom - R.top + 16)}px`;
     else card.style.bottom = `${Math.min(R.height - 200, R.bottom - r.top + 16)}px`;
@@ -123,7 +126,8 @@ export function maybeStartTour(app: App) {
   let tries = 0;
   const wait = () => {
     if (++tries > 240) return;
-    if (app.root.querySelector('.modal-back') || app.overlay) { setTimeout(wait, 500); return; }
+    // окна (приветствие, подарок) живут в body, а не в #app — ждём, пока закроют все
+    if (document.querySelector('.modal-back') || app.overlay) { setTimeout(wait, 500); return; }
     if (org) runOrgTour(app); else runPlayerTour(app);
   };
   setTimeout(wait, 800);
