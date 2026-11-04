@@ -64,7 +64,7 @@ jobs:
           supabase secrets set --yes --project-ref "$PROJECT_REF" GAME_URL="$GAME_URL"
       - name: Функции
         run: |
-          for f in auth check-sub notify bot; do supabase functions deploy "$f" --yes --project-ref "$PROJECT_REF" --no-verify-jwt; done
+          for f in auth check-sub notify bot knopka; do supabase functions deploy "$f" --yes --project-ref "$PROJECT_REF" --no-verify-jwt; done
       - name: Ключ сервиса
         run: ./scripts/supabase-keys.sh "$PROJECT_REF"
       - name: Банк вопросов

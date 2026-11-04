@@ -15,3 +15,7 @@ verify_jwt = false
 # Вебхук Telegram: подлинность проверяется секретом в заголовке (X-Telegram-Bot-Api-Secret-Token)
 [functions.bot]
 verify_jwt = false
+
+# «Кнопка»: вход капитана — подлинность проверяется подписью initData от Telegram
+[functions.knopka]
+verify_jwt = false

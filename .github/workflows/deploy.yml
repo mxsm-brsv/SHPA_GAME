@@ -41,6 +41,10 @@ jobs:
           export VITE_SUPABASE_URL="${SUPABASE_URL:-}" VITE_SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:-}" VITE_BOT_USERNAME="${BOT_USERNAME:-}"
           export VITE_TG_CHANNEL="${TG_CHANNEL:-}" VITE_TEST_MODE="${TEST_MODE:-true}" VITE_YANDEX_MAPS_KEY="${YANDEX_MAPS_KEY:-}"
           npm run build
+      - name: Настройки «Кнопки» (адрес базы и ключ — те же, что у игры)
+        run: |
+          node -e 'const c={url:process.env.SUPABASE_URL||"",key:process.env.SUPABASE_ANON_KEY||"",bot:process.env.BOT_USERNAME||"shpa_game_bot"};require("fs").writeFileSync("dist/knopka/config.js","window.KNOPKA_CFG = "+JSON.stringify(c)+";\n")'
+          test -s dist/knopka/index.html && echo "Кнопка: $(cat dist/knopka/config.js | cut -c1-80)…"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -1,0 +1,89 @@
+# Проверка «Кнопки» на живой базе: 10 тестовых телефонов с разной «плохой связью» (задержки, потери, обрывы,
+# сбитые часы) играют несколько вопросов с ГитХаба, проверка сравнивает порядок с истинным временем касаний.
+# После проверки всё возвращается как было: капитаны команд, вопросы и счёт.
+# Не запускать во время игры: на время проверки команды заняты тестовыми телефонами.
+name: Knopka check
+on:
+  workflow_dispatch:
+    inputs:
+      rounds:
+        description: 'Сколько вопросов сыграть'
+        default: '8'
+      close:
+        description: 'Гонка: все жмут в окне 0,3–0,7 с (1 — да)'
+        default: '0'
+
+concurrency:
+  group: knopka-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Настройки
+        run: |
+          grep -E '^[A-Z_]+=' deploy.env >> "$GITHUB_ENV"
+          source <(grep -E '^[A-Z_]+=' deploy.env)
+          echo "PROJECT_REF=$(echo "$SUPABASE_URL" | sed -nE 's#^https://([a-z0-9]+)\.supabase\.co/?$#\1#p')" >> "$GITHUB_ENV"
+      - name: Ключ anon
+        if: env.SUPABASE_ANON_KEY == ''
+        run: ./scripts/supabase-keys.sh "$PROJECT_REF"
+      - name: Подключение к базе
+        run: ./scripts/supabase-dburl.sh "$PROJECT_REF"
+      - name: Не идёт ли игра
+        run: |
+          LIVE=$(psql "$DB_URL" -qtAc "select count(*) from bz_rounds where created_ms > bz_ms() - 20*60*1000")
+          if [ "$LIVE" != "0" ]; then echo "::error::За последние 20 минут были вопросы ($LIVE) — похоже, идёт игра. Проверка не запущена."; exit 1; fi
+      - name: Временный вход ведущего и снимок состояния
+        run: |
+          TOKEN=$(openssl rand -hex 24)
+          echo "::add-mask::$TOKEN"
+          echo "HOST_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -qtAc "insert into bz_hosts (token_hash) values (_bz_hash('$TOKEN'))"
+          echo "MAX_ROUND=$(psql "$DB_URL" -qtAc 'select coalesce(max(id), 0) from bz_rounds')" >> "$GITHUB_ENV"
+          psql "$DB_URL" -qtAc "select coalesce(json_agg(json_build_object('id', id, 'captain', captain)), '[]') from bz_teams" > captains.json
+          psql "$DB_URL" -qtAc "select row_to_json(g) from (select countdown_ms, limit_ms, lockout_ms, auto_close, teams_locked, round_id from bz_game) g" > game.json
+          echo "капитанов сейчас: $(psql "$DB_URL" -qtAc 'select count(*) from bz_teams where captain is not null')"
+      - name: Игра 10 тестовых телефонов
+        env:
+          KEY: ${{ env.SUPABASE_ANON_KEY }}
+          LIVE: '1'
+          CLOSE: ${{ github.event.inputs.close }}
+          OUT: sim.json
+        run: node scripts/knopka/sim.mjs "$SUPABASE_URL" "${{ github.event.inputs.rounds }}"
+      - name: Вернуть как было
+        if: always()
+        run: |
+          [ -n "${DB_URL:-}" ] || exit 0
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -q <<SQL
+          begin;
+          update bz_game set round_id = null where id = 1;
+          delete from bz_rounds where id > ${MAX_ROUND:-2147483647};
+          update bz_teams set captain = null, claimed_at = null where captain in (select id from bz_clients where name like 'Тест-сим %');
+          delete from bz_clients where name like 'Тест-сим %';
+          update bz_teams t set captain = (x->>'captain')::bigint from json_array_elements('$(cat captains.json 2>/dev/null || echo '[]')'::json) x
+            where t.id = (x->>'id')::int and (x->>'captain') is not null and exists (select 1 from bz_clients c where c.id = (x->>'captain')::bigint);
+          update bz_game g set countdown_ms = (j->>'countdown_ms')::int, limit_ms = (j->>'limit_ms')::int, lockout_ms = (j->>'lockout_ms')::int,
+            auto_close = (j->>'auto_close')::boolean, teams_locked = (j->>'teams_locked')::boolean,
+            round_id = (select id from bz_rounds where id = (j->>'round_id')::int)
+            from (select '$(cat game.json 2>/dev/null || echo '{}')'::json j) s where g.id = 1 and (j->>'countdown_ms') is not null;
+          delete from bz_hosts where token_hash = _bz_hash('$HOST_TOKEN');
+          select _bz_bump();
+          commit;
+          SQL
+          echo "капитанов после: $(psql "$DB_URL" -qtAc 'select count(*) from bz_teams where captain is not null'), тестовых телефонов: $(psql "$DB_URL" -qtAc "select count(*) from bz_clients where name like 'Тест-сим %'")"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: knopka-check
+          path: sim.json
+          if-no-files-found: ignore

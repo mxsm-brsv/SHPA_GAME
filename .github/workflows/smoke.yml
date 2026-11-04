@@ -43,6 +43,11 @@ jobs:
           echo "мерч в магазине: $(rpc merch_list | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s).length+" товаров")}catch{console.log(s.slice(0,120))}})')"
           OWNER="${GITHUB_REPOSITORY%%/*}"; REPO="${GITHUB_REPOSITORY#*/}"
           echo "сайт игры: $(curl -sS -o /dev/null -w '%{http_code}' "https://${OWNER,,}.github.io/$REPO/")"
+          echo "кнопка — время сервера: $(rpc bz_time)"
+          echo "кнопка — экран зала: $(rpc bz_screen | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);console.log(j.teams.length+" команд, капитанов "+j.teams.filter(t=>t.claimed).length+", вопрос "+(j.round?j.round.n+" ("+j.round.status+")":"—"))}catch{console.log(s.slice(0,200))}})')"
+          echo "кнопка — пульс без входа: $(rpc bz_tick '{"p_token":"smoke"}' | cut -c1-60) (ждём error: auth)"
+          echo "кнопка — вход без подписи Telegram: $(curl -sS -o /dev/null -w '%{http_code}' -X POST "$SUPABASE_URL/functions/v1/knopka" "${H[@]}" -d '{}') (ждём 401)"
+          echo "кнопка — страница: $(curl -sS -o /dev/null -w '%{http_code}' "https://${OWNER,,}.github.io/$REPO/knopka/"), настройки: $(curl -sS "https://${OWNER,,}.github.io/$REPO/knopka/config.js" | grep -c supabase.co) (ждём 1)"
       - name: Бот и канал
         if: env.BOT_TOKEN != ''
         run: |
