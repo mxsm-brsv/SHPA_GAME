@@ -1,9 +1,10 @@
 """Проверка: ни одна функция в схеме public не делает UPDATE/DELETE без WHERE.
 В Supabase запросы из приложения идут через safeupdate, и такой запрос падает с «UPDATE requires a WHERE clause».
-Запуск: python3 supabase/tests/check_where.py <база> (PGHOST/PGPORT из окружения). Код выхода 1 — нашлись нарушения."""
+Запуск: python3 supabase/tests/check_where.py <база или строка подключения> (локально — PGHOST/PGPORT из окружения). Код выхода 1 — нашлись нарушения."""
 import json, re, subprocess, sys
 db = sys.argv[1]
-out = subprocess.run(["psql","-U","postgres","-d",db,"-Atc",
+conn = ["-d", db] if ("://" in db or "=" in db) else ["-U", "postgres", "-d", db]  # строка подключения или имя локальной базы
+out = subprocess.run(["psql", *conn, "-Atc",
   "select coalesce(json_agg(json_build_object('n',p.proname,'a',pg_get_function_identity_arguments(p.oid),'s',p.prosrc)),'[]') from pg_proc p where p.pronamespace='public'::regnamespace and p.prolang in (select oid from pg_language where lanname in ('plpgsql','sql'))"],
   capture_output=True, text=True, check=True).stdout
 bad = []
