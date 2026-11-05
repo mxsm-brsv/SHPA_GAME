@@ -1,6 +1,6 @@
 // Правовуха: «Правовой ринг» (на время, в рейтинг), тренировка по темам, карточки как в Quizlet и «Дело дня».
-import { DAILY_MINIGAME_CAP } from '../config/economy';
-import { icon, starSvg } from '../art/icons';
+import { DAILY_MINIGAME_COINS, GAME_COINS_PER_POINT } from '../config/economy';
+import { coinSvg, icon, starSvg } from '../art/icons';
 import { TOPICS_ORDER, shuffle, shuffledOptionOrder, type CheckResult, type Question } from '../core/questions';
 import { mskDay } from '../core/state';
 import { haptic } from '../core/telegram';
@@ -132,7 +132,7 @@ export function openLaw(app: App) {
     <button class="card row" data-act="case" style="text-align:left;${caseDone ? 'opacity:.6' : 'border-color:var(--gold)'}">${icon('scales', 30, '#ffc83d')}
       <div class="grow"><b>Дело дня</b><div class="small muted">${caseDone ? 'Уже решено сегодня — новое завтра' : `Один вопрос в день · +${CASE_RATING} баллов за верный ответ`}</div></div>${starSvg(18)}</button>
     <button class="card row" data-act="ring" style="text-align:left">${icon('target', 30, '#b26bff')}
-      <div class="grow"><b>Правовой ринг</b><div class="small muted">${RING_N} вопросов на время, серия умножает очки · ${RATING_PER_RIGHT} баллов за верный, до ${DAILY_MINIGAME_CAP} в день</div></div></button>
+      <div class="grow"><b>Правовой ринг</b><div class="small muted">${RING_N} вопросов на время, серия умножает очки · ${RATING_PER_RIGHT * GAME_COINS_PER_POINT} профкоинов за верный, до ${DAILY_MINIGAME_COINS} в день</div></div></button>
     <button class="card row" data-act="cards" data-topic="" style="text-align:left">${icon('cards', 30, '#4fd1a5')}
       <div class="grow"><b>Карточки</b><div class="small muted">Как в Quizlet: вопрос → переверни → ответ и норма</div></div></button>
     <div class="section-h">Тренировка по темам</div>
@@ -210,8 +210,8 @@ export function openRing(app: App, ctx?: PlayCtx) {
       <h2 style="font-size:26px">${hpFoe <= 0 ? 'Нокаут! Нигилизм повержен' : right >= 8 ? 'Чемпион ринга!' : right >= 5 ? 'Хороший бой' : 'Есть куда расти'}</h2>
       <div style="font-family:var(--head);font-size:40px;color:var(--gold2)">${score}</div>
       <div>${right} из ${pool.length} верно</div>
-      <div class="row" style="justify-content:center;gap:6px">${starSvg(18)}<b>+${got} баллов</b></div>
-      ${got < value ? `<div class="small muted">В зачёт идёт лучший результат дня — до ${DAILY_MINIGAME_CAP} баллов, и не больше 100 от игры в сутки.</div>` : ''}
+      <div class="row" style="justify-content:center;gap:6px">${coinSvg(18)}<b>+${got} профкоинов</b></div>
+      ${got < value * GAME_COINS_PER_POINT ? `<div class="small muted">Бонус дня — за новый лучший результат, до ${DAILY_MINIGAME_COINS} профкоинов. Баллы дают задания и образовалка («Дело дня» — тоже задание).</div>` : ''}
       <button class="btn btn-gold btn-block" data-again>Ещё раунд</button>
       <button class="btn btn-ghost btn-block" data-act="exit">Выйти</button></div>`;
     $(box, '[data-again]').addEventListener('click', () => { app.closeOverlay(); openRing(app, ctx); });

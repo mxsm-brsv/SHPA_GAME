@@ -221,3 +221,16 @@ export function closeEvent(w: WorldState) {
 
 export const pointById = (id: string) => MAP_POINTS.find((p) => p.id === id)!;
 export const factionName = (f: FactionId | null) => (f ? factionById(f).short : 'ничья');
+
+/** Победа в стычке приносит профкоины (баллов игры не дают). Платим один раз за каждый раунд из отчётов. */
+export function payWarCoins(s: { coins: number; war: { paidRound?: number } }, w: Pick<WorldState, 'reports'>, perWin: number) {
+  const paid = s.war.paidRound ?? 0;
+  let got = 0, top = paid;
+  for (const rep of w.reports ?? []) {
+    if (rep.round <= paid || !rep.my) continue;
+    if (rep.my.won) got += perWin;
+    top = Math.max(top, rep.round);
+  }
+  if (top > paid) { s.war.paidRound = top; s.coins += got; }
+  return got;
+}

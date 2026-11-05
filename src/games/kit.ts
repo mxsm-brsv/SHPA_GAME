@@ -1,7 +1,8 @@
-// Общие детали мини-игр: оболочка экрана, итог, начисление рейтинга и очков мероприятия.
-import { DAILY_MINIGAME_CAP } from '../config/economy';
+// Общие детали мини-игр: оболочка экрана, итог, бонус профкоинов и очки мероприятия. Баллов игры не дают.
+import { DAILY_GAME_COINS, DAILY_MINIGAME_COINS } from '../config/economy';
+import { grantGameCoins } from '../core/rules';
 import { gameById, type GameId } from '../config/minigames';
-import { coinSvg, icon, starSvg } from '../art/icons';
+import { coinSvg, icon } from '../art/icons';
 import { $, el, esc, fmt, onAct } from '../lib/dom';
 import type { App } from '../ui/app';
 
@@ -33,12 +34,12 @@ export function shell(app: App, id: GameId, ctx?: PlayCtx, opts: { dark?: boolea
   };
 }
 
-/** Записывает результат: лучший за день, рейтинг в лимите, очки мероприятия. */
-export async function reportResult(app: App, id: GameId, score: number, ratingValue: number, ctx?: PlayCtx) {
+/** Записывает результат: лучший за день, бонус профкоинов в лимите, очки мероприятия. Возвращает бонус. */
+export async function reportResult(app: App, id: GameId, score: number, value: number, ctx?: PlayCtx) {
   const s = app.state;
   if (score > (s.daily.best[id] ?? 0)) s.daily.best[id] = score;
-  const got = await app.backend.addGameRating(s, id, Math.min(DAILY_MINIGAME_CAP, ratingValue));
-  if (ctx?.eventKey) await app.backend.submitEventScore(s, ctx.eventKey, score);
+  const got = grantGameCoins(s, id, Math.min(30, value));
+  if (ctx?.eventKey) await app.backend.submitEventScore(s, ctx.eventKey, score).catch(() => {});
   app.update(false);
   return got;
 }
@@ -46,16 +47,16 @@ export async function reportResult(app: App, id: GameId, score: number, ratingVa
 /** Итоговое окно поверх игры. */
 export function showResult(app: App, sh: Shell, o: { title: string; good: boolean; score: number; scoreLabel?: string; lines?: string[]; coins?: number; got: number; value: number; again: () => void; ctx?: PlayCtx }) {
   if (o.coins) app.state.coins += o.coins;
+  const total = (o.coins ?? 0) + o.got;
   const box = el(`<div class="result"><div class="box">
     <h2 style="color:${o.good ? 'var(--gold2)' : '#ff8a8a'}">${esc(o.title)}</h2>
     <div style="font-family:var(--head);font-size:40px;color:var(--gold2)">${fmt(o.score)}</div>
     <div class="small muted">${esc(o.scoreLabel ?? 'очков')}</div>
     ${(o.lines ?? []).map((l) => `<div>${esc(l)}</div>`).join('')}
     <div class="row" style="justify-content:center;gap:14px;font-weight:800;font-size:18px">
-      ${o.coins ? `<span class="row" style="gap:4px">${coinSvg(20)}+${fmt(o.coins)}</span>` : ''}
-      <span class="row" style="gap:4px">${starSvg(18)}+${o.got}</span>
+      <span class="row" style="gap:4px">${coinSvg(20)}+${fmt(total)}</span>
     </div>
-    ${o.got < o.value ? `<div class="small muted">В зачёт идёт лучший результат дня — до ${DAILY_MINIGAME_CAP} баллов, всего от игры — до 100 в сутки.</div>` : ''}
+    ${o.got ? `<div class="small muted">Из них бонус за лучший результат дня: +${fmt(o.got)}</div>` : `<div class="small muted">Бонус дня — за новый лучший результат: до ${DAILY_MINIGAME_COINS} в игре, до ${DAILY_GAME_COINS} за день. Баллы дают задания и образовалка.</div>`}
     ${o.ctx?.eventKey ? `<div class="small gold">Результат ушёл в зачёт мероприятия «${esc(o.ctx.eventName ?? '')}»</div>` : ''}
     <button class="btn btn-gold btn-block" data-again>Ещё раз</button>
     <button class="btn btn-ghost btn-block" data-x>Выйти</button></div></div>`);

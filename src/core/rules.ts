@@ -1,19 +1,20 @@
 // Общие правила начисления (одинаковы в демо и в клиенте онлайн-режима).
-import { DAILY_GAME_RATING_CAP, DAILY_MINIGAME_CAP } from '../config/economy';
+import { DAILY_GAME_COINS, DAILY_MINIGAME_COINS, GAME_COINS_PER_POINT } from '../config/economy';
 import { taskById } from '../config/tasks';
 import { mskDay, rollDay, type GameState } from './state';
 
-/** Лимиты: лучший результат дня по источнику, не больше 30, и не больше 100 в сутки в сумме. */
-export function grantByCaps(s: GameState, source: string, value: number, perSourceCap = DAILY_MINIGAME_CAP) {
+/** Бонус профкоинов за игру: лучший результат дня (value 0–30 → до 300), за все игры — до 1500 в сутки.
+ *  Баллы (рейтинг) игры не дают — только задания и образовалка. */
+export function grantGameCoins(s: GameState, source: string, value: number, perSourceCap = DAILY_MINIGAME_COINS) {
   rollDay(s);
   const already = s.daily.byGame[source] ?? 0;
-  const wanted = Math.max(0, Math.min(perSourceCap, Math.round(value)) - already);
-  const left = Math.max(0, DAILY_GAME_RATING_CAP - s.daily.game);
+  const wanted = Math.max(0, Math.min(perSourceCap, Math.round(value * GAME_COINS_PER_POINT)) - already);
+  const left = Math.max(0, DAILY_GAME_COINS - s.daily.game);
   const g = Math.min(wanted, left);
   if (g > 0) {
     s.daily.byGame[source] = already + g;
     s.daily.game += g;
-    s.rating += g;
+    s.coins += g;
   }
   return g;
 }

@@ -2,7 +2,6 @@
 // Три профиля: «минимум» (ходит на блоки, почти ничего не сдаёт), «активный» (типичный активист), «максимум» (делает всё).
 // Числа — сколько раз выполняет задание за выезд. Меняете задания — поправьте здесь, панель «Мерч» пересчитает сама.
 import { TASKS } from './tasks';
-import { DAILY_GAME_RATING_CAP } from './economy';
 
 type Row = [min: number, active: number, max: number];
 
@@ -23,8 +22,8 @@ export const PLAN: Record<string, Row> = {
   cheese: [0, 0.8, 1], steps: [0, 0.4, 1], color_date: [0, 0.5, 1],
 };
 
-/** Баллы от самой игры (мини-игры, кампания, стычки) за 4 дня; лимит — DAILY_GAME_RATING_CAP в сутки. */
-export const GAME_PLAN: Row = [40, 240, 4 * DAILY_GAME_RATING_CAP];
+/** Баллы от самой игры: с 6 ноября игры дают только профкоины, баллы — задания и образовалка. */
+export const GAME_PLAN: Row = [0, 0, 0];
 
 /** Средняя цена одного выполнения: знакомство из своего ПБ — 5, из другого — 10; все 10 тайников — ещё +50. */
 const unit = (id: string, amount: number, k: 0 | 1 | 2) => (id === 'meet' ? [5, 7, 8][k] : id === 'caches' && k === 2 ? amount + 5 : amount);

@@ -1,10 +1,13 @@
 // Общая карта: Лефортово и кампус МЭИ. Ратуши ПБ, спорные точки, стычки, внешние мероприятия.
-import { CAMPUS_HOME, CONTESTED, EVENT_SQUAD, MAP_EVENTS, MAP_POINTS, RATUSHA_SPOTS, type MapEvent } from '../../config/map';
+import { CAMPUS_HOME, CONTESTED, EVENT_SQUAD, MAP_EVENTS, MAP_POINTS, PROFKOM_XY, RATUSHA_SPOTS, type MapEvent } from '../../config/map';
 import { PLAYABLE_FACTIONS, factionById, type FactionId } from '../../config/factions';
 import { gameById } from '../../config/minigames';
 import { TEST_MODE, TEST_ROUND_MINUTES } from '../../config/test';
+import { SKIRMISH_WIN_COINS } from '../../config/economy';
 import { eventMarker, pointMarker, ratushaMarker } from '../../art/mapMarkers';
 import { totemSvg } from '../../art/totems';
+import { openRaid } from './raid';
+import { toGeo } from '../../map/campusData';
 import { icon } from '../../art/icons';
 import { createDrawnMap, type DrawnView } from '../../map/drawn';
 import { createYandexMap, yandexKey, type YandexView } from '../../map/yandex';
@@ -88,7 +91,8 @@ export function renderMap(app: App) {
       const sp = RATUSHA_SPOTS[f.id as Exclude<FactionId, 'profkom'>];
       return `<g transform="translate(${sp.xy[0]} ${sp.xy[1]})" data-sel="rt:${f.id}"><g class="mks">${ratushaMarker(f.id, flevel(f.id), world?.trophies[f.id]?.length ?? 0, f.id === s.faction, sp.room)}</g></g>`;
     }).join('');
-    const evs = MAP_EVENTS.map((e) => `<g transform="translate(${e.xy[0]} ${e.xy[1]})" data-sel="ev:${e.id}"><g class="mks">${eventMarker(e, world?.event?.id === e.id, eventLabel(e))}</g></g>`).join('');
+    const evs = MAP_EVENTS.map((e) => `<g transform="translate(${e.xy[0]} ${e.xy[1]})" data-sel="ev:${e.id}"><g class="mks">${eventMarker(e, world?.event?.id === e.id, eventLabel(e))}</g></g>`).join('')
+      + `<g transform="translate(${PROFKOM_XY[0]} ${PROFKOM_XY[1]})" data-sel="pk:profkom"><g class="mks">${profkomMarker()}</g></g>`;
     // стрелка приказа от ратуши к цели
     let arrow = '';
     if (o && s.faction && !neutral) {
@@ -105,6 +109,7 @@ export function renderMap(app: App) {
       ...CONTESTED.map((p) => ({ key: `pt:${p.id}`, geo: moved[`pt:${p.id}`] ?? p.geo, html: wrap(pointMarker(p, owner(p.id), { shield: shielded(p.id), target: o?.point === p.id ? o.kind : null, selected: sel === `pt:${p.id}` }), 110, 110, 56), onClick: () => select(`pt:${p.id}`) })),
       ...PLAYABLE_FACTIONS.map((f) => { const sp = RATUSHA_SPOTS[f.id as Exclude<FactionId, 'profkom'>]; return { key: `rt:${f.id}`, geo: moved[`rt:${f.id}`] ?? sp.geo, html: wrap(ratushaMarker(f.id, flevel(f.id), world?.trophies[f.id]?.length ?? 0, f.id === s.faction, sp.room), 110, 160, 92), onClick: () => select(`rt:${f.id}`) }; }),
       ...MAP_EVENTS.map((e) => ({ key: `ev:${e.id}`, geo: moved[`ev:${e.id}`] ?? e.geo, html: wrap(eventMarker(e, world?.event?.id === e.id, eventLabel(e)), 150, 100, 36), onClick: () => select(`ev:${e.id}`) })),
+      { key: 'pk:profkom', geo: moved['pk:profkom'] ?? toGeo(PROFKOM_XY[0], PROFKOM_XY[1]), html: wrap(profkomMarker(), 110, 160, 92), onClick: () => select('pk:profkom') },
       ...MAP_POINTS.filter((p) => !p.contested).map((p) => ({ key: `lm:${p.id}`, geo: moved[`lm:${p.id}`] ?? p.geo, html: '', onClick: () => {} })),
     ].filter((m) => m.html);
     return list;
@@ -123,6 +128,11 @@ export function renderMap(app: App) {
     if (kind === 'pt') return sheetPoint(id);
     if (kind === 'rt') return sheetRatusha(id as FactionId);
     if (kind === 'ev') return sheetEvent(id);
+    if (kind === 'pk') {
+      sheet.innerHTML = `<div class="row">${totemSvg(factionById('profkom'), 44)}<div class="grow"><b>Профком</b><div class="small muted">Боссы — организаторы. Пройди всю цепочку своим ПБ — и профком ваш</div></div><button class="btn btn-ghost btn-sm" data-act="close" aria-label="Закрыть">✕</button></div>
+        <button class="btn btn-red btn-block" data-act="raid" style="margin-top:8px">${icon('swords', 18)} Штурм профкома</button>`;
+      return;
+    }
     const o = myOrder();
     const cd = cooldown();
     sheet.innerHTML = `
@@ -211,7 +221,7 @@ export function renderMap(app: App) {
       load().then(() => {
         refreshing = false;
         const rep = world?.reports[0];
-        if (world && world.round > before && rep?.my) toast(rep.my.won ? `Раунд ${rep.round}: победа! +${rep.my.rating} баллов` : `Раунд ${rep.round}: не удалось`, rep.my.won ? 'ok' : 'bad');
+        if (world && world.round > before && rep?.my) toast(rep.my.won ? `Раунд ${rep.round}: победа! +${SKIRMISH_WIN_COINS} профкоинов` : `Раунд ${rep.round}: не удалось`, rep.my.won ? 'ok' : 'bad');
       });
     }
   };
@@ -226,6 +236,7 @@ export function renderMap(app: App) {
   // ---------- Действия ----------
   onAct(node, {
     close: () => select(''),
+    raid: () => openRaid(app),
     order: async (t) => {
       const o: Order = { kind: t.dataset.kind as Order['kind'], point: t.dataset.pt! };
       await app.backend.setOrder(s, o).catch((e: Error) => toast(e.message, 'bad'));
@@ -277,7 +288,7 @@ export function renderMap(app: App) {
     const rep = world?.reports[0];
     if (!rep) { toast('Раундов ещё не было', 'info'); return; }
     modal(`<h2 style="font-size:22px;margin-bottom:6px">Раунд ${rep.round}</h2>
-      ${rep.my ? `<div class="card" style="margin-bottom:8px;border-color:${rep.my.won ? 'var(--green)' : 'var(--red)'}">Твой приказ: ${rep.my.order.kind === 'attack' ? 'атака' : 'оборона'} «${esc(pointById(rep.my.order.point).short)}» · сила ${fmt(rep.my.s)} — <b>${rep.my.won ? `победа, +${rep.my.rating} баллов` : 'неудача'}</b></div>` : ''}
+      ${rep.my ? `<div class="card" style="margin-bottom:8px;border-color:${rep.my.won ? 'var(--green)' : 'var(--red)'}">Твой приказ: ${rep.my.order.kind === 'attack' ? 'атака' : 'оборона'} «${esc(pointById(rep.my.order.point).short)}» · сила ${fmt(rep.my.s)} — <b>${rep.my.won ? `победа, +${SKIRMISH_WIN_COINS} профкоинов` : 'неудача'}</b></div>` : ''}
       <div class="list">${rep.results.length ? rep.results.map((r) => `<div class="li small"><div class="grow"><b>${esc(pointById(r.point).short)}</b><div class="muted">${factionName(r.attacker)} (${fmt(r.sAtt)}) → ${factionName(r.defender)} (${fmt(r.sDef)}) · шанс ${Math.round(r.p * 100)}%</div></div><b style="color:${r.changed ? 'var(--gold2)' : 'var(--muted)'}">${r.changed ? `взяли ${factionName(r.winner)}` : 'удержали'}</b></div>`).join('') : '<div class="muted">Атак не было</div>'}</div>`);
   };
 
@@ -294,4 +305,17 @@ export function renderMap(app: App) {
   app.onTick(tick);
   load();
   return node;
+}
+
+/** Метка профкома в центре кампуса: замок-молния, цель штурма. */
+function profkomMarker() {
+  return `<g class="mk">
+    <ellipse cx="0" cy="34" rx="40" ry="9" fill="#000" opacity=".35"/>
+    <rect x="-34" y="-10" width="68" height="44" rx="4" fill="#0d4f7a" stroke="#ffd76a" stroke-width="2"/>
+    ${[-30, -16, -2, 12, 26].map((x) => `<rect x="${x}" y="-17" width="6" height="8" fill="#0d4f7a"/>`).join('')}
+    <rect x="-14" y="-52" width="28" height="44" fill="#126da8" stroke="#ffd76a" stroke-width="2"/>
+    <path d="M2 -46 L-8 -28 H0 L-4 -14 L8 -32 H0 Z" fill="#ffd76a"/>
+    <rect x="-7" y="16" width="14" height="18" rx="7" fill="#3a2400"/>
+    <text y="56" text-anchor="middle" class="mkl" style="fill:#ffd76a">Профком</text>
+  </g>`;
 }

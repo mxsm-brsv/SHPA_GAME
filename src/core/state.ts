@@ -27,8 +27,8 @@ export interface HeroInst { uid: string; id: string; level: number; stars: numbe
 
 export interface DailyStats {
   day: string;
-  game: number;                       // рейтинг от игры за сутки (в лимите)
-  byGame: Record<string, number>;     // рейтинг по каждой мини-игре
+  game: number;                       // бонус профкоинов от игр за сутки (в лимите)
+  byGame: Record<string, number>;     // бонус профкоинов по каждой игре
   best: Record<string, number>;       // лучший счёт дня
 }
 
@@ -51,7 +51,7 @@ export interface GameState {
   law: { right: Record<string, number>; wrong: Record<string, number> };
   stats: { battles: number; wins: number; hires: number };
   /** Стычки: приказ на следующий раунд, правовой поединок, кулдаун после мероприятия */
-  war: { order: Order | null; orderRound: number; law: { round: number; share: number } | null; cooldownRound: number; wins: number; fights: number; seenRound: number };
+  war: { order: Order | null; orderRound: number; law: { round: number; share: number } | null; cooldownRound: number; wins: number; fights: number; seenRound: number; paidRound: number };
   /** Мероприятия: лучший результат по ключу мероприятия, выданные награды */
   events: { played: Record<string, number>; rewarded: Record<string, 1> };
   profile: { course: string; facts: string; filled: boolean };
@@ -106,7 +106,7 @@ export function newState(username = 'Активист'): GameState {
     fever: { level: 1, stars: {} },
     law: { right: {}, wrong: {} },
     stats: { battles: 0, wins: 0, hires: 0 },
-    war: { order: null, orderRound: 0, law: null, cooldownRound: 0, wins: 0, fights: 0, seenRound: 0 },
+    war: { order: null, orderRound: 0, law: null, cooldownRound: 0, wins: 0, fights: 0, seenRound: 0, paidRound: 0 },
     events: { played: {}, rewarded: {} },
     profile: { course: '', facts: '', filled: false },
     tasks: { done: {}, pending: {}, caches: [], meets: [], eggs: [] },

@@ -23,7 +23,7 @@ const P = (id: string, name: string, short: string, address: string, xy: [number
   ({ id, name, short, address, xy, geo: toGeo(xy[0], xy[1]), contested: influence > 0, influence, icon });
 
 export const MAP_POINTS: MapPoint[] = [
-  P('main', 'Главный учебный корпус (А–Д)', 'ГУК', 'Красноказарменная ул., 17', [1080, 1148], 'main', 14),
+  P('main', 'Главный корпус (ГК, А–Д)', 'ГК', 'Красноказарменная ул., 17', [1080, 1148], 'main', 14),
   P('admin', 'Корпуса Ж–Л', 'Корпус Ж–Л', 'Красноказарменная ул., 14', [1078, 1292], 'lab', 10),
   P('bastille', 'Корпус Е', 'Корпус Е', 'Красноказарменная ул., 13, стр. 1', [758, 995], 'lab', 10),
   P('library', 'Научно-техническая библиотека МЭИ', 'НТБ', 'Красноказарменная ул., 13, стр. 3', [846, 1062], 'book', 10),
@@ -54,6 +54,9 @@ export const RATUSHA_SPOTS: Record<Exclude<FactionId, 'profkom'>, { xy: [number,
   iete: R([1218, 1136], 'Д-403'),
   iee: R([1240, 1186], 'Д-407'),
 };
+
+/** Профком на карте — цель штурма (между ДК, ТЭЦ и ГК, чтобы не накрывать соседние метки). */
+export const PROFKOM_XY: [number, number] = [1060, 990];
 
 /** Центр кампуса — «дом» профкома на карте. */
 export const CAMPUS_HOME: [number, number] = [1070, 1060];

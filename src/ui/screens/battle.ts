@@ -6,11 +6,13 @@ import { CLICKER } from '../../config/clicker';
 import { ITEM_RARITY, statText, type ItemStat } from '../../config/items';
 import { loadoutSlots, skillById, type SkillId } from '../../config/skills';
 import { enemySvg, heroSvg } from '../../art/hero';
-import { coinSvg, icon, scrollSvg, starSvg } from '../../art/icons';
+import { coinSvg, icon, scrollSvg } from '../../art/icons';
 import { Fight, type FUnit } from '../../core/battle';
 import { sanitizeLoadout, skillLevel, winRewards } from '../../core/commander';
 import { squadPower } from '../../core/logic';
 import { addContribution } from '../../core/clicker';
+import { grantGameCoins } from '../../core/rules';
+import { DAILY_MINIGAME_COINS, GAME_COINS_PER_POINT } from '../../config/economy';
 import { haptic } from '../../core/telegram';
 import { $, el, esc, fmt, modal, onAct, plural } from '../../lib/dom';
 import type { App } from '../app';
@@ -211,7 +213,8 @@ function startFight(app: App, stage: number) {
       const r = winRewards(s, stage, f.coinsBonus);
       const xp = r.first ? 10 + stage : 2;
       addContribution(s, xp);
-      const got = r.rating ? await app.backend.addGameRating(s, 'campaign', (s.daily.byGame.campaign ?? 0) + r.rating) : 0;
+      // баллов кампания не даёт — вместо них бонус профкоинов в дневном лимите игр
+      const got = r.rating ? grantGameCoins(s, 'campaign', ((s.daily.byGame.campaign ?? 0) / GAME_COINS_PER_POINT) + r.rating, DAILY_MINIGAME_COINS * 2) : 0;
       const it = r.item;
       html = `<h2 style="color:var(--gold2)">Победа!</h2>
         ${boss ? `<div>Босс «${esc(chapterOf(stage).boss.name)}» повержен${r.first && stage < 40 ? ' · <b class="gold">+1 ячейка умений</b>' : ''}</div>` : ''}
@@ -220,12 +223,12 @@ function startFight(app: App, stage: number) {
           <span class="row" style="gap:4px">${coinSvg(22)}+${fmt(r.coins)}</span>
           ${r.crystals ? `<span class="row" style="gap:4px;color:#9fe0ff">💎+${r.crystals}</span>` : ''}
           ${r.scrolls ? `<span class="row" style="gap:4px">${scrollSvg(22)}+${r.scrolls}</span>` : ''}
-          ${got ? `<span class="row" style="gap:4px">${starSvg(20)}+${got}</span>` : ''}
+          ${got ? `<span class="row" style="gap:4px" title="бонус дня">${coinSvg(22)}+${fmt(got)} бонус</span>` : ''}
           <span class="row" style="gap:4px;color:#9fe0ff">${icon('flag', 18, '#9fe0ff')}+${xp} ПБ</span>
         </div>
         ${it ? `<div class="card col" style="border-color:${ITEM_RARITY[it.rarity].color};gap:2px"><div class="small" style="color:${ITEM_RARITY[it.rarity].color}">${ITEM_RARITY[it.rarity].name} · новое снаряжение</div><b>${esc(it.name)}</b><div class="small">${(Object.entries(it.stats) as [ItemStat, number][]).map(([k, v]) => statText(k, v)).join(' · ')}</div>${r.sold ? '<div class="small muted">Рюкзак был полон — самый слабый предмет продан</div>' : ''}</div>` : ''}
         ${r.crystals ? '<div class="small muted">Кристаллы — на улучшение умений: «Отряд → Умения»</div>' : ''}
-        ${r.rating && !got ? '<div class="small muted">Баллы за игру на сегодня уже набраны — завтра лимит обновится</div>' : ''}
+        ${r.rating && !got ? '<div class="small muted">Бонус профкоинов за кампанию на сегодня набран — завтра лимит обновится</div>' : ''}
         <button class="btn btn-gold btn-block" data-act="next">${s.stage <= MAX_STAGE ? `Дальше: этап ${chapterOf(s.stage).n}-${((s.stage - 1) % 10) + 1}` : 'Кампания пройдена!'}</button>
         <div class="row" style="gap:8px"><button class="btn btn-blue grow" data-act="squad">Отряд</button><button class="btn btn-ghost grow" data-act="exit">На базу</button></div>`;
     } else {
