@@ -26,10 +26,14 @@ select id as t4 from bz_teams where num = 4 \gset
 select pg_temp.ok((select count(*) from bz_teams where active) = 10, '10 профбюро загружены заранее');
 
 \echo '--- выбор команды: одна команда — один капитан'
+-- с v9 профбюро берётся из списка выезда (вход по ФИО); здесь — сразу проставляем, механику входа проверяет v9
+update bz_clients set team_id = case ident when 'tg:1001' then :t1 when 'tg:1002' then :t1 when 'tg:1003' then :t3 else :t4 end, team_src = 'host';
 select pg_temp.ok(bz_claim(:'ta', :t1)->>'ok' = 'true', 'Аня берёт команду 1');
 select pg_temp.ok(bz_claim(:'tb', :t1)->>'error' like '%уже жмёт Аня%', 'Борису команда 1 уже занята');
-select pg_temp.ok(bz_claim(:'tb', :t2)->>'ok' = 'true', 'Борис берёт команду 2');
-select pg_temp.ok(bz_claim(:'ta', :t4)->>'ok' = 'true', 'Аня переходит в команду 4');
+select pg_temp.ok(bz_claim(:'ta', :t4)->>'error' like '%только за свою%', 'Аня не может жать за чужую команду 4');
+update bz_clients set team_id = :t2 where ident = 'tg:1002';
+select pg_temp.ok(bz_claim(:'tb', :t2)->>'ok' = 'true', 'Борис (команда 2) берёт свою');
+select pg_temp.ok(bz_unclaim(:'ta')->>'ok' = 'true', 'Аня отказалась жать');
 select pg_temp.ok((select captain is null from bz_teams where id = :t1), '…и команда 1 освободилась');
 select pg_temp.ok(bz_claim(:'ta', :t1)->>'ok' = 'true', 'Аня возвращается в команду 1');
 select pg_temp.ok(bz_claim(:'tc', :t3)->>'ok' = 'true', 'Вика берёт команду 3');

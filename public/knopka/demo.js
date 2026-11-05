@@ -1,11 +1,30 @@
 // @ts-check
 // Демо «Кнопки» без сервера (?demo): те же правила, что в базе (bz_* в миграциях v8–v9), но в памяти браузера.
-// Девять команд жмут ботами, у каждой команды есть зрители-боты, которые голосуют за клипы (кроме своего ПБ).
+// Вход — по ФИО и группе из выдуманного списка выезда. Восемь команд жмут ботами, в каждой команде есть
+// зрители-боты, которые голосуют за клипы (кроме своего ПБ).
 
 const NAMES = ['ГПИ', 'ИВТИ', 'ИГВИЭ', 'ИнЭИ', 'ИРЭ', 'ИТАЭ', 'ИЭВТ', 'ИЭТЭ', 'ИЭЭ', 'ЭнМИ'];
-const PEOPLE = ['Аня', 'Борис', 'Вика', 'Глеб', 'Даша', 'Егор', 'Женя', 'Зоя', 'Илья', 'Катя', 'Лёша', 'Маша', 'Никита', 'Оля',
-  'Паша', 'Рита', 'Саша', 'Таня', 'Уля', 'Фёдор', 'Юля', 'Яна', 'Артём', 'Вера', 'Дима', 'Ксюша', 'Миша', 'Настя', 'Рома', 'Соня'];
+const CODES = ['gpi', 'ivti', 'igvie', 'inei', 'ire', 'itae', 'ievt', 'iete', 'iee', 'enmi'];
+const FIRST = [['Анна', 'f'], ['Борис', 'm'], ['Виктория', 'f'], ['Глеб', 'm'], ['Дарья', 'f'], ['Егор', 'm'], ['Евгения', 'f'], ['Илья', 'm'],
+  ['Екатерина', 'f'], ['Алексей', 'm'], ['Мария', 'f'], ['Никита', 'm'], ['Ольга', 'f'], ['Павел', 'm'], ['Маргарита', 'f'], ['Роман', 'm'],
+  ['Татьяна', 'f'], ['Фёдор', 'm'], ['Юлия', 'f'], ['Артём', 'm'], ['Вера', 'f'], ['Дмитрий', 'm'], ['Ксения', 'f'], ['Михаил', 'm'], ['Анастасия', 'f'], ['Семён', 'm']];
+const LAST = ['Соколов', 'Попов', 'Лебедев', 'Козлов', 'Новиков', 'Морозов', 'Волков', 'Зайцев', 'Павлов', 'Семёнов', 'Голубев', 'Виноградов',
+  'Богданов', 'Воробьёв', 'Фёдоров', 'Михайлов', 'Беляев', 'Тарасов', 'Белов', 'Комаров', 'Киселёв', 'Макаров', 'Андреев', 'Ковалёв'];
 const FREE_TEAMS = [5, 9]; // ИРЭ и ИЭЭ — без бота у кнопки: можно взять себе
+/** Люди, под которыми можно войти в демо (подсказки на экране входа). */
+const HINTS = [['Смирнова Анна', 'ИРЭ-01-24', 'ire'], ['Орлов Павел', 'ИЭЭ-03-24', 'iee'], ['Белова Ксения', 'ГПИ-02-24', 'gpi']];
+const ORG = ['Лебедева Ольга', '', 'profkom'];
+
+const normFio = (t) => String(t ?? '').toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я ]/g, ' ').replace(/\s+/g, ' ').trim();
+const normGroup = (t) => String(t ?? '').toLowerCase().replace(/ё/g, 'е').replace(/[^0-9а-яa-z]/g, '');
+const digits = (t) => t.replace(/\D/g, '');
+function lev(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+const tol = (w) => (w.length >= 6 ? 1 : 0);
 
 const rnd = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
@@ -15,21 +34,29 @@ export class DemoServer {
   constructor() {
     this.v = 1;
     this.g = { title: 'Вечерка ШПА', round_id: null, teams_locked: false, countdown_ms: 3000, limit_ms: 0, lockout_ms: 1000,
-      pts_ok: 1, pts_bad: 1, auto_close: true, vote_status: 'off', vote_title: 'Лучший клип', vote_roster_only: false, vote_web: false };
-    this.teams = NAMES.map((name, i) => ({ id: i + 1, num: i + 1, name, captain: null, active: true }));
+      pts_ok: 1, pts_bad: 1, auto_close: true, vote_status: 'off', vote_title: 'Лучший клип' };
+    this.teams = NAMES.map((name, i) => ({ id: i + 1, num: i + 1, name, code: CODES[i], captain: null, active: true }));
+    /** @type {{id:number, fio:string, grp:string, faction:string, staff:boolean}[]} */
+    this.roster = [];
+    const addPerson = (fio, grp, faction, staff = false) => { const r = { id: this.roster.length + 1, fio, grp, faction, staff }; this.roster.push(r); return r; };
+    for (const [f, g, fa] of HINTS) addPerson(f, g, fa);
+    addPerson(ORG[0], ORG[1], ORG[2], true);
+    this.hints = HINTS.map(([f, g]) => [f, g]);
     this.clips = this.teams.map((t) => ({ id: t.id, num: t.num, title: '', team_id: t.id, active: true }));
     /** @type {Map<number, any>} */ this.clients = new Map();
     this.byToken = new Map();
     this.rounds = []; this.presses = []; this.adjust = []; this.votes = new Map(); this.hosts = new Set();
     this.seq = 1;
     this.timers = [];
-    // боты: капитан и 3–6 зрителей в каждой команде
+    // боты: капитан и 3–6 зрителей в каждой команде, все — из «списка выезда»
     let p = 0;
     for (const t of this.teams) {
       const n = 3 + Math.floor(Math.random() * 4);
-      for (let k = 0; k < n; k++) {
-        const c = this.newClient(`${PEOPLE[p++ % PEOPLE.length]}${p > PEOPLE.length ? ' ' + Math.ceil(p / PEOPLE.length) : ''}`, 'tg', true);
-        c.team_id = t.id; c.team_src = Math.random() < 0.7 ? 'roster' : 'self';
+      for (let k = 0; k < n; k++, p++) {
+        const [first, sex] = FIRST[p % FIRST.length], last = LAST[(p * 7) % LAST.length] + (sex === 'f' ? 'а' : '');
+        const r = addPerson(`${last} ${first}`, `${t.name.toUpperCase()}-0${1 + (p % 6)}-24`, t.code);
+        const c = this.newClient(first, 'tg', true);
+        this.bind(c, r);
         if (k === 0 && !FREE_TEAMS.includes(t.num)) { t.captain = c.id; c.captainBot = true; }
       }
     }
@@ -39,7 +66,7 @@ export class DemoServer {
   now() { return performance.timeOrigin + performance.now(); }
   bump() { this.v++; }
   newClient(name, kind, bot = false) {
-    const c = { id: this.seq++, token: tok(), kind, name, fio: null, team_id: null, team_src: null, team_at: 0, last_seen_ms: bot ? this.now() : null,
+    const c = { id: this.seq++, token: tok(), kind, name, fio: null, grp: null, roster_id: null, team_id: null, team_src: null, team_at: 0, last_seen_ms: bot ? this.now() : null,
       as_of_ms: null, rtt: bot ? Math.round(rnd(20, 90)) : null, err: bot ? Math.round(rnd(2, 15)) : null, seen_round: null, seen_lag: null, bot };
     this.clients.set(c.id, c); this.byToken.set(c.token, c);
     return c;
@@ -98,15 +125,46 @@ export class DemoServer {
     return { ok: true, code: 'ok', round: r.id, press_ms: ms, flags: fl };
   }
 
-  join(c, teamId) {
-    const tm = this.teams.find((t) => t.id === teamId && t.active);
-    if (!tm) return 'Такой команды нет';
-    if (c.team_id === tm.id) return null;
-    if (c.team_src === 'roster') return 'Твоё профбюро взято из списка выезда ШПА. Если оно неверное — подойди к ведущему.';
-    if (c.team_src === 'host') return 'Твоё профбюро закрепил ведущий — сменить может только он.';
-    if (c.team_id != null && (Date.now() - c.team_at > 600000 || this.g.vote_status === 'open' || this.votes.has(c.id))) return 'Профбюро уже выбрано. Сменить его может ведущий.';
-    c.team_id = tm.id; c.team_src = 'self'; c.team_at = Date.now();
-    for (const t of this.teams) if (t.captain === c.id && t.id !== tm.id) t.captain = null;
+  // ── вход по ФИО ──
+  teamFor(faction) { return this.teams.find((t) => t.active && t.code === faction)?.id ?? null; }
+  bind(c, r) {
+    const parts = r.fio.split(' ');
+    Object.assign(c, { roster_id: r.id, fio: r.fio, grp: r.grp || null, name: `${parts[1] ?? ''} ${parts[0]}`.trim(), team_id: this.teamFor(r.faction), team_src: 'roster', team_at: Date.now() });
+    for (const t of this.teams) if (t.captain === c.id && t.id !== c.team_id) t.captain = null;
+  }
+  /** Как roster_find: фамилия и имя в любом порядке, опечатка в длинных словах, цифры группы совпадают. */
+  find(fio, grp, staff) {
+    const t = normFio(fio).split(' ').filter(Boolean), g = normGroup(grp);
+    if (t.length < 2) return [];
+    return this.roster.filter((r) => {
+      if (r.staff !== staff) return false;
+      const rt = normFio(r.fio).split(' ');
+      const ok = t.some((a, i) => t.some((b, j) => i !== j && lev(a, rt[0]) <= tol(rt[0]) && lev(b, rt[1]) <= tol(rt[1])));
+      if (!ok) return false;
+      return staff || (g !== '' && digits(g) === digits(normGroup(r.grp)) && lev(g, normGroup(r.grp)) <= 2);
+    });
+  }
+  login(c, fio, grp, code) {
+    const staff = String(code ?? '').trim() !== '';
+    if (String(fio ?? '').trim().length < 3) return 'Напиши фамилию и имя';
+    if (!staff && !String(grp ?? '').trim()) return 'Напиши группу — как в списке выезда, например ЭР-01-24';
+    c.fails = (c.fails ?? []).filter((x) => Date.now() - x < 900000);
+    if (c.fails.length >= 8) return 'Слишком много попыток. Подожди 15 минут или подойди к ведущему.';
+    const found = this.find(fio, grp, staff);
+    if (!found.length) { c.fails.push(Date.now()); return staff ? 'Не нашли тебя в составе оргкомитета. Проверь фамилию и имя. (В демо: Лебедева Ольга, любой код)' : 'Не нашли тебя в списке выезда. Проверь ФИО и группу. Если всё верно — подойди к ведущему.'; }
+    if (found.length > 1) return 'Нашли несколько похожих — напиши ФИО полностью, с отчеством.';
+    const r = found[0];
+    if (c.roster_id === r.id) return null;
+    const other = [...this.clients.values()].find((x) => x.roster_id === r.id);
+    if (other) { c.fails.push(Date.now()); return 'Под этим ФИО уже вошли с другого телефона. Если это не ты — подойди к ведущему, он сбросит вход.'; }
+    if (c.roster_id != null && this.votes.has(c.id)) return 'Ты уже проголосовал(а) — сменить вход может только ведущий.';
+    this.bind(c, r);
+    const v = this.votes.get(c.id); if (v && this.clips.find((k) => k.id === v.clip_id)?.team_id === c.team_id) this.votes.delete(c.id);
+    return null;
+  }
+  needTeam(c) {
+    if (c.roster_id == null && c.team_id == null) return 'Сначала войди по ФИО и группе';
+    if (c.team_id == null) return this.roster.find((r) => r.id === c.roster_id)?.faction === 'profkom' ? 'Оргкомитет не жмёт кнопку за команды' : 'Твоего профбюро нет среди команд — подойди к ведущему';
     return null;
   }
 
@@ -156,7 +214,6 @@ export class DemoServer {
     const clips = this.clips.filter((k) => k.active).map((k) => {
       const j = { id: k.id, num: k.num, title: k.title, team: k.team_id };
       if (host || g.vote_status === 'shown') j.votes = count(k);
-      if (host) Object.assign(j, { roster: count(k, (v) => v.src === 'roster'), web: count(k, (v) => v.kind === 'web') });
       return j;
     });
     const out = {
@@ -164,21 +221,21 @@ export class DemoServer {
       game: { title: g.title, locked: g.teams_locked, countdown_ms: g.countdown_ms, limit_ms: g.limit_ms, lockout_ms: g.lockout_ms,
         pts_ok: g.pts_ok, pts_bad: g.pts_bad, auto_close: g.auto_close, own_code: false },
       teams, round: rj, clips,
-      vote: { status: g.vote_status, title: g.vote_title, roster_only: g.vote_roster_only, web: g.vote_web, total: this.votes.size },
+      vote: { status: g.vote_status, title: g.vote_title, total: this.votes.size },
     };
     if (my) {
-      out.me = { id: my.id, name: my.name, fio: my.fio, kind: my.kind, team: my.team_id, team_src: my.team_src,
+      out.me = { id: my.id, name: my.name, fio: my.fio, grp: my.grp, kind: my.kind, team: my.team_id, team_src: my.team_src,
+        in: my.roster_id != null, org: this.roster.find((r) => r.id === my.roster_id)?.faction === 'profkom',
         mates: my.team_id == null ? [] : [...this.clients.values()].filter((m) => m.team_id === my.team_id)
           .map((m) => ({ id: m.id, name: m.name, captain: !!this.captainOf(m) })).sort((a, b) => a.name.localeCompare(b.name)),
-        captain: !!this.captainOf(my), vote: this.votes.get(my.id)?.clip_id ?? null,
-        can_change: my.team_id != null && my.team_src === 'self' && Date.now() - my.team_at < 600000 && !this.votes.has(my.id) && g.vote_status !== 'open' };
+        captain: !!this.captainOf(my), vote: this.votes.get(my.id)?.clip_id ?? null };
     }
     if (host) {
       out.history = this.rounds.filter((x) => x.id !== g.round_id).slice(-30).reverse().map((x) => ({ id: x.id, n: x.n, status: x.status,
         order: this.presses.filter((p) => p.round_id === x.id).sort((a, b) => a.press_ms - b.press_ms)
           .map((p) => ({ team: p.team_id, verdict: p.verdict, points: p.points, rel_ms: Math.round(p.press_ms - x.opens_ms) })) }));
       out.members = [...this.clients.values()].map((m) => [m.id, m.name, m.fio, m.team_id, m.team_src, m.kind,
-        m.last_seen_ms != null && t - m.last_seen_ms < 10000, this.votes.has(m.id)]);
+        m.last_seen_ms != null && t - m.last_seen_ms < 10000, this.votes.has(m.id), m.grp]);
     }
     return out;
   }
@@ -207,17 +264,25 @@ export class DemoServer {
         return wrap({ ...res, press: pr });
       }
       case 'bz_press': return c ? wrap(this.press(c, a.p_round, a.p_ms, a.p_rtt, a.p_err, a.p_attempts)) : { ok: false, code: 'auth' };
-      case 'bz_join': {
+      case 'bz_login': {
         if (!c) return { ok: false, code: 'auth' };
-        const e = this.join(c, a.p_team); if (e) return { ok: false, error: e };
-        this.bump(); return { ok: true };
+        const e = this.login(c, a.p_fio, a.p_group, a.p_code); if (e) return { ok: false, error: e };
+        this.bump(); return { ok: true, ...this.view(false, c) };
+      }
+      case 'bz_logout': {
+        if (!c) return { ok: false, code: 'auth' };
+        if (this.votes.has(c.id)) return { ok: false, error: 'Ты уже проголосовал(а) — сменить вход может только ведущий.' };
+        for (const x of this.teams) if (x.captain === c.id) x.captain = null;
+        Object.assign(c, { roster_id: null, fio: null, grp: null, team_id: null, team_src: null });
+        this.bump(); return { ok: true, ...this.view(false, c) };
       }
       case 'bz_claim': {
         if (!c) return { ok: false, code: 'auth' };
         const tm = this.teams.find((x) => x.id === a.p_team && x.active);
         if (!tm) return { ok: false, error: 'Такой команды нет' };
         if (tm.captain === c.id) return { ok: true };
-        if (c.team_id !== tm.id) { const e = this.join(c, tm.id); if (e) return { ok: false, error: e }; }
+        const e = this.needTeam(c); if (e) return { ok: false, error: e };
+        if (c.team_id !== tm.id) return { ok: false, error: `Ты в профбюро «${this.teams.find((x) => x.id === c.team_id)?.name}» — жать кнопку можно только за свою команду.` };
         if (this.g.teams_locked) return { ok: false, error: 'Ведущий закрыл выбор, кто жмёт кнопку. Подойди к ведущему.' };
         if (tm.captain) return { ok: false, error: `За команду «${tm.name}» уже жмёт ${this.clients.get(tm.captain)?.name}.` };
         for (const x of this.teams) if (x.captain === c.id) x.captain = null;
@@ -230,8 +295,9 @@ export class DemoServer {
       }
       case 'bz_assign': {
         if (!c) return { ok: false, code: 'auth' };
+        const e = this.needTeam(c); if (e) return { ok: false, error: e };
         const tm = this.teams.find((x) => x.id === c.team_id);
-        if (!tm) return { ok: false, error: 'Сначала выбери своё профбюро' };
+        if (!tm) return { ok: false, error: 'Твоей команды нет в игре' };
         if (this.g.teams_locked) return { ok: false, error: 'Ведущий закрыл выбор, кто жмёт кнопку.' };
         if (tm.captain && tm.captain !== c.id) return { ok: false, error: `Кнопку жмёт ${this.clients.get(tm.captain)?.name} — передать её может только он или ведущий.` };
         const target = this.clients.get(Number(a.p_client));
@@ -241,7 +307,7 @@ export class DemoServer {
       case 'bz_vote': {
         if (!c) return { ok: false, code: 'auth' };
         if (this.g.vote_status !== 'open') return { ok: false, error: 'Голосование сейчас закрыто' };
-        if (c.team_id == null && c.team_src !== 'roster') return { ok: false, error: 'Сначала выбери своё профбюро' };
+        if (c.roster_id == null) return { ok: false, error: 'Сначала войди по ФИО и группе — голосуют участники выезда' };
         if (a.p_clip == null) this.votes.delete(c.id);
         else {
           const k = this.clips.find((x) => x.id === a.p_clip && x.active);
@@ -291,15 +357,21 @@ export class DemoServer {
       case 'teams': {
         const names = (a.names || []).map((x) => String(x).trim()).filter(Boolean).slice(0, 20);
         if (!names.length) return 'Нужно от 1 до 20 команд';
-        names.forEach((name, i) => { const tm = this.teams.find((x) => x.num === i + 1); if (tm) Object.assign(tm, { name, active: true }); else this.teams.push({ id: this.teams.length + 1, num: i + 1, name, captain: null, active: true }); });
+        const code = (n) => CODES[NAMES.findIndex((x) => ` ${n.toUpperCase().replace(/Ё/g, 'Е').replace(/[^А-ЯA-Z0-9]+/g, ' ')} `.includes(` ${x.toUpperCase()} `))] ?? null;
+        names.forEach((name, i) => { const tm = this.teams.find((x) => x.num === i + 1); if (tm) Object.assign(tm, { name, active: true, code: code(name) }); else this.teams.push({ id: this.teams.length + 1, num: i + 1, name, code: code(name), captain: null, active: true }); });
         for (const tm of this.teams) if (tm.num > names.length) Object.assign(tm, { active: false, captain: null });
+        for (const m of this.clients.values()) {
+          if (m.team_src === 'roster') m.team_id = this.teamFor(this.roster.find((r) => r.id === m.roster_id)?.faction);
+          if (m.team_id != null && !this.teams.find((x) => x.id === m.team_id && x.active)) m.team_id = null;
+        }
+        for (const tm of this.teams) if (tm.captain && this.clients.get(tm.captain)?.team_id !== tm.id) tm.captain = null;
         return null;
       }
       case 'release': { const tm = this.teams.find((x) => x.id === a.team); if (tm) tm.captain = null; return null; }
       case 'release_all': this.teams.forEach((x) => { x.captain = null; }); return null;
       case 'lock': g.teams_locked = a.on ?? !g.teams_locked; return null;
       case 'settings':
-        for (const k of ['title', 'countdown_ms', 'limit_ms', 'lockout_ms', 'pts_ok', 'pts_bad', 'auto_close', 'vote_title', 'vote_roster_only', 'vote_web']) if (k in a) g[k] = a[k];
+        for (const k of ['title', 'countdown_ms', 'limit_ms', 'lockout_ms', 'pts_ok', 'pts_bad', 'auto_close', 'vote_title']) if (k in a) g[k] = a[k];
         return null;
       case 'new_game': g.round_id = null; this.rounds = []; this.presses = []; this.adjust = []; return null;
       case 'host_code': case 'logout_others': return null;
@@ -313,7 +385,7 @@ export class DemoServer {
         return null;
       case 'member': {
         const m = this.clients.get(Number(a.client)); if (!m) return 'Нет такого человека';
-        m.team_id = a.team ? Number(a.team) : null; m.team_src = m.team_id ? 'host' : null; m.team_at = Date.now();
+        m.team_id = a.team ? Number(a.team) : null; m.team_src = 'host'; m.team_at = Date.now();
         for (const x of this.teams) if (x.captain === m.id && x.id !== m.team_id) x.captain = null;
         const v = this.votes.get(m.id); if (v && this.clips.find((k) => k.id === v.clip_id)?.team_id === m.team_id) this.votes.delete(m.id);
         return null;
@@ -324,6 +396,13 @@ export class DemoServer {
         for (const x of this.teams) if (x.captain === m.id) x.captain = null;
         if (m.team_id !== tm.id) { m.team_id = tm.id; m.team_src = 'host'; }
         tm.captain = m.id; return null;
+      }
+      case 'unbind': {
+        const m = this.clients.get(Number(a.client)); if (!m) return 'Нет такого человека';
+        for (const x of this.teams) if (x.captain === m.id) x.captain = null;
+        this.votes.delete(m.id);
+        Object.assign(m, { roster_id: null, fio: null, grp: null, team_id: null, team_src: null });
+        return null;
       }
       case 'kick': { const id = Number(a.client); for (const x of this.teams) if (x.captain === id) x.captain = null; this.votes.delete(id); this.clients.delete(id); return null; }
     }

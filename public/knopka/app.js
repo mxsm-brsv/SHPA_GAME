@@ -14,6 +14,8 @@ const BOT = (CFG.bot || '').replace(/^@/, '');
 const PAGE_URL = DEMO ? 'https://mxsm-brsv.github.io/SHPA_GAME/knopka/' : `${location.origin}${location.pathname}`;
 /** Ссылка для участников: бот вечерки (если настроен), иначе страница в браузере. */
 const JOIN_URL = BOT ? (CFG.mainApp ? `https://t.me/${BOT}?startapp=knopka` : `https://t.me/${BOT}?start=go`) : PAGE_URL;
+/** В демо — под кем можно войти (ФИО, группа). */
+let DEMO_PEOPLE = /** @type {string[][]} */ ([]);
 
 const memory = new Map();
 const LS = DEMO
@@ -193,31 +195,14 @@ async function teamAuth() {
       const j = await r.json().catch(() => null);
       if (j?.token) return /** @type {string} */ (j.token);
     } catch { /* ниже — запасной путь */ }
-    const u = tg.initDataUnsafe?.user;
-    const name = [u?.first_name, u?.last_name].filter(Boolean).join(' ') || 'Участник';
-    const j = await api.rpc('bz_register_web', { p_device: deviceKey(), p_name: name }).catch(() => null);
-    if (j?.token) return /** @type {string} */ (j.token);
   }
-  // 2) Браузер: спрашиваем имя
-  return await new Promise((resolve) => {
-    root.className = 'team-app';
-    const inp = /** @type {HTMLInputElement} */ (h('input', { autocomplete: 'name', maxlength: 40, placeholder: 'Например, Аня Смирнова', enterkeyhint: 'go' }));
-    const err = h('p', { class: 'err' });
-    const go = async () => {
-      err.textContent = '';
-      const j = await api.rpc('bz_register_web', { p_device: deviceKey(), p_name: inp.value }).catch((e) => ({ error: e.message }));
-      if (j?.token) resolve(j.token); else err.textContent = j?.error || 'Не получилось войти';
-    };
-    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
-    fill(root, topBar().el,
-      h('div', { class: 'card-form' },
-        h('h1', null, 'Вечерка ШПА'),
-        h('p', null, BOT ? 'Удобнее открыть через Telegram-бота — там вход в одно касание, и только оттуда можно голосовать за клипы.' : 'Напиши, как тебя зовут: ведущий увидит это имя в списке твоего профбюро.'),
-        h('label', { class: 'field' }, h('span', null, 'Имя и фамилия'), inp), err,
-        bv('sun big wide', 'Войти', go),
-        BOT ? h('p', { class: 'small muted', style: 'margin:14px 0 0' }, 'Бот: ', h('a', { href: JOIN_URL }, `@${BOT}`)) : null));
-    inp.focus();
-  });
+  // 2) Браузер (или Telegram без связи с функцией): телефон заводим по ключу устройства, кто это — скажет ФИО
+  for (let i = 0; ; i++) {
+    const j = await api.rpc('bz_register_web', { p_device: deviceKey(), p_name: tg?.initDataUnsafe?.user?.first_name || 'Браузер' }).catch((e) => ({ error: e.message }));
+    if (j?.token) return /** @type {string} */ (j.token);
+    if (i === 0) fill(root, topBar().el, h('div', { class: 'card-form' }, h('h1', null, 'Нет связи с сервером'), h('p', null, j?.error || 'Пробуем ещё раз…')));
+    await new Promise((r) => setTimeout(r, 2000));
+  }
 }
 
 async function teamMode() {
@@ -230,16 +215,65 @@ async function teamMode() {
   let tab = 'button';
   let lastVoteStatus = 'off';
   let earlyUntil = 0;
-  let sigPick = '', sigHome = '', sigVote = '';
+  let sigHome = '', sigVote = '';
 
   // ── разметка: строится один раз, дальше меняются тексты и классы ──
   const top = topBar();
-  const tilesGrid = h('div', { class: 'grid' });
-  const pick = h('section', { class: 'pick hidden' },
-    h('h1', null, 'Из какого ты профбюро?'),
-    h('p', { class: 'lead' }, 'Выбирается один раз — потом сменить сможет только ведущий. За клип своего профбюро голосовать будет нельзя.'),
-    tilesGrid,
-    h('div', { class: 'foot' }, h('button', { class: 'link', type: 'button', onclick: () => switchToHost() }, 'Я ведущий')));
+
+  // вход по ФИО и группе — как в игре ШПА, но отдельно от неё
+  let orgMode = false;
+  const fioInp = /** @type {HTMLInputElement} */ (h('input', { autocomplete: 'name', maxlength: 80, placeholder: 'Фамилия Имя Отчество', enterkeyhint: 'next', autocapitalize: 'words' }));
+  const grpInp = /** @type {HTMLInputElement} */ (h('input', { autocomplete: 'off', maxlength: 20, placeholder: 'Например, ЭР-01-24', enterkeyhint: 'go', autocapitalize: 'characters', spellcheck: 'false' }));
+  const codeInp = /** @type {HTMLInputElement} */ (h('input', { autocomplete: 'off', maxlength: 40, placeholder: 'Код организатора', enterkeyhint: 'go', spellcheck: 'false' }));
+  const grpField = h('label', { class: 'field' }, h('span', null, 'Группа'), grpInp);
+  const codeField = h('label', { class: 'field hidden' }, h('span', null, 'Код организатора'), codeInp);
+  const loginErr = h('p', { class: 'err', role: 'alert' });
+  const loginBtn = bv('sun big wide', 'Войти', () => login());
+  const orgLink = h('button', { class: 'link', type: 'button', onclick: () => setOrg(!orgMode) }, 'Я из оргкомитета');
+  const loginLead = h('p', { class: 'lead' }, 'Напиши ФИО и группу — как в списке выезда. Профбюро подтянется само: за его клип голосовать нельзя, а кнопку жмёт кто-то из вашей команды.');
+  const pick = h('section', { class: 'pick login hidden' },
+    h('h1', null, 'Кто ты?'), loginLead,
+    h('form', { class: 'card-form', onsubmit: (e) => { e.preventDefault(); login(); } },
+      h('label', { class: 'field' }, h('span', null, 'ФИО'), fioInp), grpField, codeField, loginErr, loginBtn,
+      DEMO ? h('div', { class: 'demo-hint' }, h('span', null, 'Демо — попробуй:'),
+        ...DEMO_PEOPLE.map(([f, g]) => h('button', { class: 'chip', type: 'button', onclick: () => { setOrg(false); fioInp.value = f; grpInp.value = g; loginErr.textContent = ''; } }, `${f}, ${g}`))) : null),
+    h('div', { class: 'foot' }, orgLink, h('button', { class: 'link', type: 'button', onclick: () => switchToHost() }, 'Я ведущий')));
+  fioInp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); (orgMode ? codeInp : grpInp).focus(); } });
+  /** @param {boolean} on */
+  function setOrg(on) {
+    orgMode = on;
+    grpField.classList.toggle('hidden', on);
+    codeField.classList.toggle('hidden', !on);
+    orgLink.textContent = on ? 'Я участник' : 'Я из оргкомитета';
+    loginLead.textContent = on ? 'Оргкомитет входит по ФИО и коду организатора: кнопку за команды не жмёт, голосовать может за любой клип.'
+      : 'Напиши ФИО и группу — как в списке выезда. Профбюро подтянется само: за его клип голосовать нельзя, а кнопку жмёт кто-то из вашей команды.';
+    loginErr.textContent = '';
+  }
+  let loggingIn = false;
+  async function login() {
+    if (loggingIn) return;
+    loginErr.textContent = '';
+    if (fioInp.value.trim().split(/\s+/).length < 2) { loginErr.textContent = 'Напиши фамилию и имя'; fioInp.focus(); return; }
+    loggingIn = true; loginBtn.setAttribute('disabled', '');
+    const r = await api.rpc('bz_login', { p_token: token, p_fio: fioInp.value, p_group: orgMode ? '' : grpInp.value, p_code: orgMode ? codeInp.value : null })
+      .catch((e) => ({ error: e instanceof ApiError ? e.message : 'Нет связи — попробуй ещё раз' }));
+    loggingIn = false; loginBtn.removeAttribute('disabled');
+    if (r?.code === 'auth') return authLost();
+    if (!r?.ok) { loginErr.textContent = r?.error || 'Не получилось войти'; haptic('bad'); return; }
+    haptic('ok');
+    const t = r.teams?.find((x) => x.id === r.me?.team);
+    toast(`${r.me?.name ?? 'Привет'}, ${t ? `ты в команде «${t.name}»` : r.me?.org ? 'ты в оргкомитете' : 'вход выполнен'}`);
+    link.apply(r, performance.now());
+  }
+  async function logout() {
+    const m = me();
+    if (!(await confirmSheet('Это не ты?', `Сейчас вход по ФИО «${m?.fio ?? ''}». Выйди и войди под своим — пока ты не голосовал, это можно.`, 'Выйти'))) return;
+    const r = await api.rpc('bz_logout', { p_token: token }).catch((e) => ({ error: e.message }));
+    if (r?.code === 'auth') return authLost();
+    if (!r?.ok) { toast(r?.error || 'Не получилось'); return; }
+    fioInp.value = ''; grpInp.value = ''; codeInp.value = '';
+    link.apply(r, performance.now());
+  }
 
   const tNum = num('–', 'sun lg');
   const tName = h('div', { class: 'name' });
@@ -283,26 +317,6 @@ async function teamMode() {
     segVote.querySelector('.dot-new')?.remove();
   }
 
-  // ── выбор профбюро ──
-  function renderPick() {
-    const s = S();
-    const sig = JSON.stringify(s.teams.map((t) => [t.id, t.name, t.members]));
-    if (sig === sigPick) return;
-    sigPick = sig;
-    fill(tilesGrid, ...s.teams.map((t) => h('button', { class: 'tile', type: 'button', onclick: () => join(t) },
-      num(t.num), h('span', null, h('b', null, t.name), h('small', null, t.members ? `${t.members} ${plural(t.members, 'человек', 'человека', 'человек')}` : 'пока никого')))));
-  }
-  /** @param {any} t */
-  async function join(t) {
-    const ok = await confirmSheet(`Ты из профбюро «${t.name}»?`, 'Сменить профбюро потом сможет только ведущий. За клип своего профбюро голосовать будет нельзя.', 'Да, это моё профбюро');
-    if (!ok) return;
-    const r = await api.rpc('bz_join', { p_token: token, p_team: t.id }).catch((e) => ({ error: e.message }));
-    if (r?.code === 'auth') return authLost();
-    if (!r?.ok) { toast(r?.error || 'Не получилось'); return; }
-    haptic('ok');
-    link.kick();
-  }
-
   // ── кто жмёт ──
   function chooseMate() {
     const mates = me()?.mates ?? [];
@@ -327,20 +341,6 @@ async function teamMode() {
     if (!r?.ok) { toast(r?.error || 'Не получилось'); return; }
     link.kick();
   }
-  async function changeTeam() {
-    const s = S();
-    sheet((close) => [
-      h('h2', null, 'Сменить профбюро'),
-      h('p', null, 'Можно в первые 10 минут после выбора, пока ты не голосовал. Потом — только через ведущего.'),
-      ...s.teams.map((t) => h('button', { class: `pickrow${t.id === me()?.team ? ' on' : ''}`, type: 'button', onclick: async () => {
-        const r = await api.rpc('bz_join', { p_token: token, p_team: t.id }).catch((e) => ({ error: e.message }));
-        if (!r?.ok) { toast(r?.error || 'Не получилось'); return; }
-        close(); link.kick();
-      } }, num(t.num), h('span', null, t.name))),
-      h('div', { class: 'row' }, bv('', 'Отмена', close)),
-    ]);
-  }
-
   function renderHome() {
     const s = S(), m = me(), t = myTeam();
     const g = s.vote;
@@ -355,22 +355,24 @@ async function teamMode() {
     }
     seg.classList.toggle('hidden', g.status === 'off');
 
-    const sig = JSON.stringify([m.team, m.team_src, m.captain, m.can_change, t?.claimed, t?.captain_name, t?.score, s.game.locked, (m.mates ?? []).length]);
+    const sig = JSON.stringify([m.team, m.team_src, m.fio, m.grp, m.org, m.vote != null, m.captain, t?.claimed, t?.captain_name, t?.score, s.game.locked, (m.mates ?? []).length]);
     if (sig !== sigHome) {
       sigHome = sig;
+      // кто я: имя из списка выезда и группа (или «назначил ведущий»)
+      const who = [m.in ? m.name : null, m.grp, m.team_src === 'host' ? 'профбюро назначил ведущий' : null].filter(Boolean).join(' · ');
       if (t) {
         tNum.textContent = String(t.num);
-        fill(tName, t.name, m.team_src === 'roster' ? h('small', null, 'профбюро из списка выезда') : m.team_src === 'host' ? h('small', null, 'профбюро назначил ведущий') : null);
+        fill(tName, t.name, who ? h('small', null, who) : null);
         tScore.textContent = String(t.score); tScoreWord.textContent = plural(t.score, 'балл', 'балла', 'баллов');
         scoreBox.classList.remove('hidden'); tNum.classList.remove('hidden');
       } else {
-        fill(tName, 'Профком', h('small', null, 'организатор: голосуешь за любой клип'));
+        fill(tName, m.org ? 'Оргкомитет' : 'Без команды', h('small', null, m.org ? `${m.name} · голосуешь за любой клип` : `${who || m.name} · твоего профбюро нет среди команд`));
         scoreBox.classList.add('hidden'); tNum.classList.add('hidden');
       }
       stage.classList.toggle('hidden', !m.captain);
       presser.classList.toggle('hidden', !!m.captain);
       if (!m.captain) {
-        if (!t) fill(presser, h('div', null, 'Кнопку жмут команды — у организаторов её нет.'));
+        if (!t) fill(presser, h('div', null, m.org ? 'Кнопку жмут команды — у оргкомитета её нет.' : 'Твоего профбюро нет среди команд вечерки. Если это ошибка — подойди к ведущему.'));
         else if (t.claimed) {
           fill(presser, h('div', { class: 'muted' }, `Кнопку за «${t.name}» жмёт`), h('div', { class: 'who' }, t.captain_name ?? '—'),
             h('div', { class: 'small muted' }, 'Передать кнопку может только он или ведущий.'));
@@ -388,7 +390,7 @@ async function teamMode() {
       fill(footBtn, 
         m.captain && !s.game.locked ? h('button', { class: 'link', type: 'button', onclick: chooseMate }, 'Передать кнопку') : null,
         m.captain && !s.game.locked ? h('button', { class: 'link', type: 'button', onclick: release }, 'Не жать') : null,
-        m.can_change ? h('button', { class: 'link', type: 'button', onclick: changeTeam }, 'Сменить профбюро') : null);
+        m.in && m.vote == null && !m.captain ? h('button', { class: 'link', type: 'button', onclick: logout }, 'Это не я') : null);
       try { if (m.captain) tg?.enableClosingConfirmation?.(); else tg?.disableClosingConfirmation?.(); } catch { /* старый Telegram */ }
     }
 
@@ -531,7 +533,8 @@ async function teamMode() {
     setNet(top.net, link?.online ?? true, !link?.online ? 'нет связи' : Number.isFinite(clock.lastRtt) ? `${Math.round(clock.lastRtt)} мс` : '…');
   }
 
-  function frame() { if (dead) return; if (link?.state?.me && (link.state.me.team || link.state.me.team_src === 'roster')) paint(); requestAnimationFrame(frame); }
+  const isIn = (m) => !!m && (m.in || m.team != null);
+  function frame() { if (dead) return; if (isIn(link?.state?.me)) paint(); requestAnimationFrame(frame); }
 
   /** Касание: время берём из события (момент касания), а не из обработчика. @param {Event} e */
   function onPress(e) {
@@ -553,10 +556,15 @@ async function teamMode() {
 
   function onState() {
     const m = me();
-    const inTeam = !!m && (m.team != null || m.team_src === 'roster');
+    const inTeam = isIn(m);
+    const was = !home.classList.contains('hidden');
     pick.classList.toggle('hidden', inTeam);
     home.classList.toggle('hidden', !inTeam);
-    if (inTeam) renderHome(); else { renderPick(); setNet(top.net, link.online, link.online ? `${Math.round(clock.lastRtt || 0)} мс` : 'нет связи'); }
+    if (inTeam) renderHome();
+    else {
+      if (was) { sigHome = ''; sigVote = ''; lastVoteStatus = 'off'; setTab('button'); }
+      setNet(top.net, link.online, link.online ? `${Math.round(clock.lastRtt || 0)} мс` : 'нет связи');
+    }
   }
 
   function authLost() {
@@ -651,7 +659,7 @@ async function hostMode() {
 
   const team = (id) => S?.teams?.find((t) => t.id === id);
   const tname = (id) => team(id)?.name ?? '—';
-  const people = () => (S?.members ?? []).map(([id, name, fio, teamId, src, kind, online, voted]) => ({ id, name, fio, team: teamId, src, kind, online, voted }));
+  const people = () => (S?.members ?? []).map(([id, name, fio, teamId, src, kind, online, voted, grp]) => ({ id, name, fio, team: teamId, src, kind, online, voted, grp }));
   let sig = '';
   const phaseEl = h('span', { class: 'phase' });
 
@@ -729,7 +737,7 @@ async function hostMode() {
     const max = Math.max(1, ...S.clips.map((k) => k.votes ?? 0));
     const ppl = people();
     const voters = ppl.filter((p) => p.voted).length;
-    const canVote = ppl.filter((p) => (p.team != null || p.src === 'roster') && (g.web || p.kind !== 'web') && (!g.roster_only || p.src === 'roster')).length;
+    const canVote = ppl.filter((p) => p.fio).length;
     return [
       h('section', { class: 'panel' },
         h('div', { class: 'ctl-head' }, h('h2', null, g.title), h('span', { class: `phase${g.status === 'open' ? ' live' : ''}` }, label)),
@@ -740,20 +748,14 @@ async function hostMode() {
           g.status === 'shown' ? bv('', 'Скрыть итоги', () => act('vote', { status: 'closed' })) : null,
           g.total ? bv('', 'Сбросить голоса', async () => { if (await confirmSheet('Сбросить все голоса?', 'Голосование начнётся с нуля.', 'Сбросить')) act('vote_reset'); }) : null),
         h('p', { class: 'small muted', style: 'margin:12px 0 0' },
-          `Проголосовали ${voters} из ${canVote}, кто может голосовать. За клип своего профбюро голос не принимается. `,
+          `Проголосовали ${voters} из ${canVote}, кто вошёл по ФИО. Один человек из списка выезда — один голос, за клип своего профбюро голос не принимается. `,
           'Участникам итоги не видны, пока вы не нажмёте «Показать итоги».')),
       h('section', { class: 'panel' }, h('h2', null, 'Голоса (видите только вы)'),
         h('div', { class: 'res' }, sorted.map((k) => h('div', { class: 'r' }, num(k.num),
           h('div', { class: 'track' }, h('div', { class: 'fill', style: `width:${Math.round(((k.votes ?? 0) / max) * 100)}%` }),
             h('span', { class: 'lbl' }, clipName(k, teams), clipSub(k, teams) ? ` · ${clipSub(k, teams)}` : '')),
-          h('span', { class: 'n' }, String(k.votes ?? 0), h('small', null, `из списка ${k.roster ?? 0}`))))),
+          h('span', { class: 'n' }, String(k.votes ?? 0))))),
         h('div', { class: 'row', style: 'margin-top:14px' }, bv('small', 'Изменить список клипов', editClips))),
-      h('section', { class: 'panel' }, h('h2', null, 'Правила голосования'),
-        h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: g.roster_only, onchange: (e) => act('settings', { vote_roster_only: e.target.checked }) }),
-          'Только участники из списка выезда (зарегистрированные в игре ШПА)'),
-        h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: g.web, onchange: (e) => act('settings', { vote_web: e.target.checked }) }),
-          'Принимать голоса из браузера (без Telegram)'),
-        h('p', { class: 'small muted', style: 'margin:6px 0 0' }, 'Из браузера легко зайти несколько раз под разными именами, поэтому по умолчанию голосуют только через Telegram: один аккаунт — один голос.')),
     ];
   }
 
@@ -786,14 +788,14 @@ async function hostMode() {
 
   function teamsTab() {
     const ppl = people();
-    const srcLabel = (p) => (p.src === 'roster' ? 'из списка' : p.src === 'host' ? 'назначен' : p.src === 'self' ? 'выбрал сам' : '');
     const memberRow = (p, t) => h('div', { class: 'mrow' },
       h('span', { class: `dot${p.online ? ' on' : ''}` }),
-      h('span', { class: 'nm' }, p.name, p.fio && p.fio !== p.name ? h('small', null, ` · ${p.fio}`) : null,
-        h('small', null, ` · ${[srcLabel(p), p.kind === 'web' ? 'браузер' : '', p.voted ? 'голосовал' : ''].filter(Boolean).join(', ')}`)),
+      h('span', { class: 'nm' }, p.fio ?? h('i', null, `${p.name} — не вошёл по ФИО`),
+        h('small', null, [p.grp ? ` · ${p.grp}` : '', p.src === 'host' ? ' · перевёл ведущий' : '', p.kind === 'web' ? ' · браузер' : '', p.voted ? ' · голосовал' : ''].join(''))),
       t && t.captain?.id !== p.id ? bv('small', 'Жмёт он', () => act('captain', { team: t.id, client: p.id })) : t ? h('span', { class: 'pill ok' }, 'жмёт кнопку') : null,
-      bv('small', 'Перевести', () => moveSheet(p)),
-      bv('small', 'Убрать', async () => { if (await confirmSheet(`Убрать «${p.name}»?`, 'Его голос и кнопка снимутся. Если это настоящий участник — он сможет войти заново.', 'Убрать')) act('kick', { client: p.id }); }));
+      p.fio ? bv('small', 'Перевести', () => moveSheet(p)) : null,
+      p.fio ? bv('small', 'Сбросить вход', async () => { if (await confirmSheet(`Сбросить вход «${p.fio}»?`, 'Телефон снова попросит ФИО и группу, голос и кнопка снимутся. Нужно, если под чужим ФИО вошёл не тот человек.', 'Сбросить')) act('unbind', { client: p.id }); }) : null,
+      bv('small', 'Убрать', async () => { if (await confirmSheet(`Убрать «${p.fio ?? p.name}»?`, 'Телефон отключится, голос и кнопка снимутся. Если это настоящий участник — он сможет войти заново.', 'Убрать')) act('kick', { client: p.id }); }));
     const rows = S.teams.map((t) => {
       const mem = ppl.filter((p) => p.team === t.id);
       return h('div', { class: 'trow' }, num(t.num),
@@ -812,8 +814,8 @@ async function hostMode() {
         h('div', { class: 'join' }, qrBox(JOIN_URL),
           h('div', null,
             h('p', { style: 'margin:0 0 10px' }, BOT
-              ? 'Сканируют QR — откроется бот вечерки. Каждый выбирает своё профбюро (зарегистрированным в игре ШПА оно подставится само), в команде выбирают, кто жмёт кнопку.'
-              : 'Бот вечерки ещё не подключён — пока QR ведёт на страницу в браузере. Когда появится бот, здесь будет ссылка на него.'),
+              ? 'Сканируют QR — откроется бот вечерки. Каждый входит по ФИО и группе из списка выезда, профбюро подставляется само. В команде выбирают, кто жмёт кнопку.'
+              : 'Бот вечерки ещё не подключён — пока QR ведёт на страницу в браузере (вход там тоже по ФИО и группе). Когда появится бот, здесь будет ссылка на него.'),
             h('p', { style: 'margin:0 0 12px' }, h('span', { class: 'code' }, JOIN_URL)),
             h('div', { class: 'row' }, bv('small', 'Скопировать ссылку', () => copy(JOIN_URL)),
               bv('small', 'Ссылка на экран для зала', () => copy(`${PAGE_URL}?screen`)))))),
@@ -821,7 +823,7 @@ async function hostMode() {
         h('div', { class: 'row', style: 'justify-content:space-between;margin-bottom:6px' }, h('h2', { style: 'margin:0' }, 'Команды'),
           h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: S.game.locked, onchange: (e) => act('lock', { on: e.target.checked }) }), 'Закрыть выбор, кто жмёт')),
         h('div', null, rows),
-        loose.length ? h('details', { class: 'members', 'data-k': 'loose', style: 'margin-top:12px' }, h('summary', null, `Без профбюро и профком: ${loose.length}`), loose.map((p) => memberRow(p, null))) : null,
+        loose.length ? h('details', { class: 'members', 'data-k': 'loose', style: 'margin-top:12px' }, h('summary', null, `Оргкомитет и без команды: ${loose.length}`), loose.map((p) => memberRow(p, null))) : null,
         h('div', { class: 'row', style: 'margin-top:14px' },
           bv('', 'Изменить список команд', () => editTeams()),
           bv('', 'Освободить все кнопки', async () => { if (await confirmSheet('Освободить все кнопки?', 'В каждой команде заново выберут, кто жмёт.', 'Освободить все')) act('release_all'); }))),
@@ -831,8 +833,8 @@ async function hostMode() {
   /** @param {any} p */
   function moveSheet(p) {
     sheet((close) => [
-      h('h2', null, `Профбюро: ${p.name}`),
-      h('p', null, 'Ведущий может перевести человека в любое профбюро. Если он голосовал за клип нового профбюро, голос снимется.'),
+      h('h2', null, `Профбюро: ${p.fio ?? p.name}`),
+      h('p', null, 'Если в списке выезда ошибка — переведите человека в его профбюро. Если он голосовал за клип нового профбюро, голос снимется.'),
       ...S.teams.map((t) => h('button', { class: `pickrow${t.id === p.team ? ' on' : ''}`, type: 'button', onclick: async () => { if (await act('member', { client: p.id, team: t.id })) close(); } }, num(t.num), t.name)),
       h('button', { class: `pickrow${p.team == null ? ' on' : ''}`, type: 'button', onclick: async () => { if (await act('member', { client: p.id, team: null })) close(); } }, 'Без профбюро'),
       h('div', { class: 'row' }, bv('', 'Отмена', close)),
@@ -1014,7 +1016,7 @@ async function screenMode() {
           const okP = r.presses.find((p) => p.verdict === 'ok'), nextP = r.presses.find((p) => p.verdict !== 'bad');
           m = okP ? `Верный ответ: «${tname(okP.team)}»` : nextP ? `Отвечает «${tname(nextP.team)}»` : 'Верного ответа нет';
         }
-      } else { txt = 'Скоро'; m = 'Откройте бота вечерки и выберите своё профбюро'; showQr = true; qs2 = 'кнопка и голосование'; }
+      } else { txt = 'Скоро'; m = 'Откройте бота вечерки и войдите по ФИО и группе'; showQr = true; qs2 = 'кнопка и голосование'; }
       if (clockEl.className !== cls) clockEl.className = cls;
       const ck = `${txt}|${sub}`;
       if (clockEl.dataset.k !== ck) { clockEl.dataset.k = ck; fill(clockEl, h('span', null, txt, sub ? h('small', null, sub) : null)); }
@@ -1041,6 +1043,7 @@ async function screenMode() {
     try { srv = /** @type {any} */ (window.parent)?.__knopkaDemo ?? null; } catch { /* другой источник */ }
     if (!srv) { srv = /** @type {any} */ (window).__knopkaDemo ?? new DemoServer(); /** @type {any} */ (window).__knopkaDemo = srv; }
     api = new DemoApi(srv);
+    DEMO_PEOPLE = srv.hints ?? [];
   } else {
     if (!CFG.url) { fatal('Кнопка не настроена', 'Нет адреса сервера. Его подставляет сборка на GitHub (Deploy game) из deploy.env.'); return; }
     api = new Api(CFG.url, CFG.key || '');

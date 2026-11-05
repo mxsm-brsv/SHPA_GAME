@@ -1,25 +1,23 @@
 -- v9: вечерка в отдельном боте + «Приз зрительских симпатий».
--- 1. Каждый, кто открыл мини-приложение, состоит в своём профбюро (bz_clients.team_id). Кто зарегистрирован
---    в игре ШПА через Telegram, получает профбюро из списка выезда (roster.faction) — сменить его может только
---    ведущий. Остальные выбирают сами: передумать можно 10 минут, пока не проголосовал и голосование не открыто.
--- 2. Кнопку за команду жмёт один человек из этой команды (bz_teams.captain).
--- 3. Голосование за клипы: один голос на человека, за клип своего профбюро нельзя, передумать можно, пока
---    голосование открыто. По умолчанию голосуют только из Telegram (в браузере легко завести несколько «людей»).
+-- 1. Вечерка — только для участников выезда. Каждый входит по ФИО и группе из списка выезда (как в игре ШПА,
+--    но отдельно от неё): профбюро берётся из списка (roster.faction). Одна строка списка — один телефон;
+--    сбросить вход может ведущий. Оргкомитет входит по ФИО и коду организатора: кнопку не жмёт,
+--    голосовать может за любой клип.
+-- 2. Кнопку за команду жмёт один человек из этой команды (bz_teams.captain) — выбирают сами или ведущий.
+-- 3. Голосование за клипы: один голос на человека из списка, за клип своего профбюро нельзя, передумать можно,
+--    пока голосование открыто.
 
 alter table public.bz_teams add column if not exists code text;
-alter table public.bz_clients add column if not exists tg_id bigint;
-alter table public.bz_clients add column if not exists team_id int references public.bz_teams(id) on delete set null;
-alter table public.bz_clients add column if not exists team_src text check (team_src in ('roster', 'self', 'host'));
-alter table public.bz_clients add column if not exists team_at timestamptz;
+alter table public.bz_clients add column if not exists roster_id bigint unique references public.roster(id) on delete set null;
 alter table public.bz_clients add column if not exists fio text;
+alter table public.bz_clients add column if not exists grp text;
+alter table public.bz_clients add column if not exists team_id int references public.bz_teams(id) on delete set null;
+alter table public.bz_clients add column if not exists team_src text check (team_src in ('roster', 'host'));
+alter table public.bz_clients add column if not exists team_at timestamptz;
 create index if not exists bz_clients_team on public.bz_clients (team_id);
-update public.bz_clients set tg_id = substr(ident, 4)::bigint where ident like 'tg:%' and tg_id is null;
-create index if not exists bz_clients_tg on public.bz_clients (tg_id);
 
 alter table public.bz_game add column if not exists vote_status text not null default 'off' check (vote_status in ('off', 'open', 'closed', 'shown'));
 alter table public.bz_game add column if not exists vote_title text not null default 'Лучший клип';
-alter table public.bz_game add column if not exists vote_roster_only boolean not null default false;
-alter table public.bz_game add column if not exists vote_web boolean not null default false;
 
 create table if not exists public.bz_clips (
   id serial primary key,
@@ -32,7 +30,7 @@ create table if not exists public.bz_votes (
   client_id bigint primary key references public.bz_clients(id) on delete cascade,
   clip_id int not null references public.bz_clips(id) on delete cascade,
   team_id int,                       -- профбюро голосующего в момент голоса
-  src text,                          -- roster | self | host — откуда это профбюро
+  src text,                          -- roster | host — откуда это профбюро
   kind text,                         -- tg | web
   at timestamptz not null default now()
 );
@@ -55,36 +53,115 @@ update public.bz_teams set code = _bz_code(name) where code is distinct from _bz
 insert into public.bz_clips (num, team_id)
 select tm.num, tm.id from public.bz_teams tm where tm.active and not exists (select 1 from public.bz_clips) order by tm.num;
 
--- ───────────────────────── профбюро из списка выезда ─────────────────────────
+-- ───────────────────────── вход ─────────────────────────
 
-/**
- * Если человек зарегистрирован в игре ШПА через Telegram, его профбюро и ФИО — из списка выезда.
- * Профком (организаторы) — без команды: могут голосовать за любой клип, кнопку не жмут.
- */
-create or replace function public._bz_roster_sync(p_client bigint) returns boolean
+/** Повторный вход из Telegram не затирает имя из списка выезда. */
+create or replace function public._bz_issue(p_ident text, p_kind text, p_name text, p_username text) returns jsonb
 language plpgsql volatile security definer set search_path = public as $$
-declare c bz_clients; r roster; tid int;
+declare tok text := encode(extensions.gen_random_bytes(24), 'hex'); cid bigint; nm2 text;
+  nm text := left(nullif(btrim(regexp_replace(coalesce(p_name, ''), '\s+', ' ', 'g')), ''), 40);
 begin
-  select * into c from bz_clients where id = p_client;
-  if c.tg_id is null or c.team_src = 'host' then return false; end if;
-  select * into r from roster where tg_id = c.tg_id;
-  if r.id is null then return false; end if;
-  select id into tid from bz_teams where active and code = r.faction order by num limit 1;
-  if c.team_src = 'roster' and c.team_id is not distinct from tid and c.fio is not distinct from r.fio then return false; end if;
-  update bz_clients set team_id = tid, team_src = 'roster', team_at = now(), fio = r.fio where id = c.id;
-  -- жал кнопку за чужую команду — кнопка освобождается
-  update bz_teams set captain = null, claimed_at = null where captain = c.id and id is distinct from tid;
-  perform _bz_bump();
-  return true;
+  if nm is null then nm := 'Без имени'; end if;
+  insert into bz_clients (ident, kind, token_hash, name, username)
+  values (p_ident, p_kind, _bz_hash(tok), nm, left(nullif(btrim(coalesce(p_username, '')), ''), 40))
+  on conflict (ident) do update set token_hash = excluded.token_hash,
+    name = case when bz_clients.roster_id is null then excluded.name else bz_clients.name end,
+    username = excluded.username, as_of_ms = null, last_seen_ms = null
+  returning id, name into cid, nm2;
+  return jsonb_build_object('ok', true, 'token', tok, 'id', cid, 'name', nm2);
 end $$;
 
-create or replace function public.bz_register(p_tg bigint, p_name text, p_username text) returns jsonb
-language plpgsql volatile security definer set search_path = public as $$
-declare res jsonb := _bz_issue('tg:' || p_tg, 'tg', p_name, p_username);
+/** Команда для профбюро из списка выезда (оргкомитет и профбюро, которого нет среди команд, — без команды). */
+create or replace function public._bz_team_for(p_faction text) returns int language sql stable security definer set search_path = public as $$
+  select id from bz_teams where active and code = p_faction order by num limit 1
+$$;
+
+/**
+ * Вход по ФИО и группе из списка выезда (сверка — та же, что в игре ШПА: порядок слов любой, опечатка
+ * в длинных словах прощается, цифры группы должны совпасть). p_code — код организатора для оргкомитета.
+ * 8 ошибок за 15 минут — пауза.
+ */
+create or replace function public.bz_login(p_token text, p_fio text, p_group text, p_code text default null) returns jsonb
+language plpgsql volatile security definer set search_path = public, extensions as $$
+declare
+  c bz_clients := _bz_client(p_token); r roster; n int; k text; other bz_clients; tid int; parts text[];
+  staff boolean := coalesce(btrim(p_code), '') <> ''; ids bigint[]; ids3 bigint[];
+  words text[] := string_to_array(norm_fio(p_fio), ' ');
 begin
-  update bz_clients set tg_id = p_tg where id = (res->>'id')::bigint;
-  perform _bz_roster_sync((res->>'id')::bigint);
-  return res;
+  if c.id is null then return jsonb_build_object('ok', false, 'code', 'auth'); end if;
+  k := 'bzl:' || c.id;
+  delete from bz_attempts where at < now() - interval '15 minutes';
+  if (select count(*) from bz_attempts where key = k) >= 8 then
+    return jsonb_build_object('ok', false, 'error', 'Слишком много попыток. Подожди 15 минут или подойди к ведущему.');
+  end if;
+  if length(btrim(coalesce(p_fio, ''))) < 3 then return jsonb_build_object('ok', false, 'error', 'Напиши фамилию и имя'); end if;
+  if staff and (setting_text('staff_code', '') = '' or _bz_norm_code(p_code) <> _bz_norm_code(setting_text('staff_code', ''))) then
+    insert into bz_attempts (key) values (k);
+    return jsonb_build_object('ok', false, 'error', 'Неверный код организатора');
+  end if;
+  if not staff and coalesce(btrim(p_group), '') = '' and setting_bool('require_group', true) then
+    return jsonb_build_object('ok', false, 'error', 'Напиши группу — как в списке выезда, например ЭР-01-24');
+  end if;
+
+  select array_agg(f.id) into ids from roster_find(p_fio, p_group, staff) f;
+  n := coalesce(array_length(ids, 1), 0);
+  -- тёзки (фамилия и имя совпали): различаем по отчеству, если его написали
+  if n > 1 and coalesce(array_length(words, 1), 0) >= 3 then
+    select array_agg(ro.id) into ids3 from roster ro
+    where ro.id = any(ids) and split_part(ro.fio_norm, ' ', 3) <> ''
+      and exists(select 1 from unnest(words) w
+                 where levenshtein(w, split_part(ro.fio_norm, ' ', 3)) <= roster_tol(split_part(ro.fio_norm, ' ', 3)));
+    if coalesce(array_length(ids3, 1), 0) >= 1 then ids := ids3; n := array_length(ids3, 1); end if;
+  end if;
+  if n = 0 then
+    insert into bz_attempts (key) values (k);
+    return jsonb_build_object('ok', false, 'error', case when staff then 'Не нашли тебя в составе оргкомитета. Проверь фамилию и имя.'
+      else 'Не нашли тебя в списке выезда. Проверь ФИО и группу. Если всё верно — подойди к ведущему.' end);
+  end if;
+  if n > 1 then return jsonb_build_object('ok', false, 'error', 'Нашли несколько похожих — напиши ФИО полностью, с отчеством.'); end if;
+  select * into r from roster where id = ids[1];
+
+  perform 1 from bz_game where id = 1 for update;
+  select * into c from bz_clients where id = c.id for update;
+  if c.roster_id is not distinct from r.id then
+    return jsonb_build_object('ok', true) || _bz_view(false, c.id);
+  end if;
+  select * into other from bz_clients where roster_id = r.id;
+  if other.id is not null then
+    insert into bz_attempts (key) values (k);
+    return jsonb_build_object('ok', false, 'error', 'Под этим ФИО уже вошли с другого телефона. Если это не ты — подойди к ведущему, он сбросит вход.');
+  end if;
+  if c.roster_id is not null and exists(select 1 from bz_votes where client_id = c.id) then
+    return jsonb_build_object('ok', false, 'error', 'Ты уже проголосовал(а) — сменить вход может только ведущий.');
+  end if;
+
+  tid := _bz_team_for(r.faction);
+  parts := string_to_array(r.fio, ' ');
+  update bz_clients set roster_id = r.id, fio = r.fio, grp = nullif(r.grp, ''),
+    name = left(coalesce(parts[2] || ' ', '') || parts[1], 40),
+    team_id = tid, team_src = 'roster', team_at = now()
+  where id = c.id;
+  -- жал кнопку за другую команду — кнопка освобождается
+  update bz_teams set captain = null, claimed_at = null where captain = c.id and id is distinct from tid;
+  delete from bz_votes bv using bz_clips kk where bv.client_id = c.id and kk.id = bv.clip_id and kk.team_id = tid;
+  perform _bz_bump();
+  return jsonb_build_object('ok', true) || _bz_view(false, c.id);
+end $$;
+
+/** «Это не я» — выйти из ФИО, пока не проголосовал. */
+create or replace function public.bz_logout(p_token text) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare c bz_clients := _bz_client(p_token);
+begin
+  if c.id is null then return jsonb_build_object('ok', false, 'code', 'auth'); end if;
+  perform 1 from bz_game where id = 1 for update;
+  if exists(select 1 from bz_votes where client_id = c.id) then
+    return jsonb_build_object('ok', false, 'error', 'Ты уже проголосовал(а) — сменить вход может только ведущий.');
+  end if;
+  update bz_teams set captain = null, claimed_at = null where captain = c.id;
+  update bz_clients set roster_id = null, fio = null, grp = null, team_id = null, team_src = null, team_at = now() where id = c.id;
+  perform _bz_bump();
+  return jsonb_build_object('ok', true) || _bz_view(false, c.id);
 end $$;
 
 -- ───────────────────────── состояние ─────────────────────────
@@ -179,17 +256,15 @@ begin
   select coalesce(jsonb_agg(jsonb_build_object('id', k.id, 'num', k.num, 'title', k.title, 'team', k.team_id)
       || case when p_host or g.vote_status = 'shown' then jsonb_build_object('votes', (select count(*) from bz_votes v where v.clip_id = k.id))
          else '{}'::jsonb end
-      || case when p_host then jsonb_build_object(
-           'roster', (select count(*) from bz_votes v where v.clip_id = k.id and v.src = 'roster'),
-           'web', (select count(*) from bz_votes v where v.clip_id = k.id and v.kind = 'web'))
-         else '{}'::jsonb end
       order by k.num), '[]'::jsonb) into clips
   from bz_clips k where k.active;
-  vote := jsonb_build_object('status', g.vote_status, 'title', g.vote_title, 'roster_only', g.vote_roster_only, 'web', g.vote_web,
+  vote := jsonb_build_object('status', g.vote_status, 'title', g.vote_title,
     'total', (select count(*) from bz_votes v join bz_clips k on k.id = v.clip_id and k.active));
 
   if my.id is not null then
-    me := jsonb_build_object('id', my.id, 'name', my.name, 'fio', my.fio, 'kind', my.kind,
+    me := jsonb_build_object('id', my.id, 'name', my.name, 'fio', my.fio, 'grp', my.grp, 'kind', my.kind,
+      'in', my.roster_id is not null,
+      'org', coalesce((select ro.faction = 'profkom' from roster ro where ro.id = my.roster_id), false),
       -- кто ещё в моём профбюро — чтобы выбрать, кто жмёт кнопку
       'mates', case when my.team_id is null then '[]'::jsonb else (
         select coalesce(jsonb_agg(jsonb_build_object('id', m.id, 'name', m.name,
@@ -197,10 +272,7 @@ begin
         from bz_clients m where m.team_id = my.team_id) end,
       'team', my.team_id, 'team_src', my.team_src,
       'captain', exists(select 1 from bz_teams tm where tm.captain = my.id and tm.active),
-      'vote', (select clip_id from bz_votes where client_id = my.id),
-      -- сам поменять профбюро: выбрал сам, меньше 10 минут назад, ещё не голосовал и голосование не открыто
-      'can_change', my.team_id is not null and my.team_src = 'self' and my.team_at > now() - interval '10 minutes'
-                    and not exists(select 1 from bz_votes where client_id = my.id) and g.vote_status <> 'open');
+      'vote', (select clip_id from bz_votes where client_id = my.id));
   end if;
 
   if p_host then
@@ -211,10 +283,10 @@ begin
                   from bz_presses p where p.round_id = rr.id), '[]'::jsonb)) as j
       from bz_rounds rr where rr.id <> coalesce(g.round_id, -1) order by rr.id desc limit 30
     ) h;
-    -- все, кто открыл кнопку: [id, имя, ФИО, команда, откуда команда, tg/web, на связи, проголосовал]
+    -- все, кто открыл кнопку: [id, имя, ФИО, команда, откуда команда, tg/web, на связи, проголосовал, группа]
     select coalesce(jsonb_agg(jsonb_build_array(m.id, m.name, m.fio, m.team_id, m.team_src, m.kind,
         m.last_seen_ms is not null and t - m.last_seen_ms < 10000,
-        exists(select 1 from bz_votes v where v.client_id = m.id)) order by m.team_id nulls first, m.name), '[]'::jsonb)
+        exists(select 1 from bz_votes v where v.client_id = m.id), m.grp) order by m.team_id nulls first, m.fio nulls first, m.name), '[]'::jsonb)
     into members from bz_clients m;
   end if;
 
@@ -240,10 +312,6 @@ begin
   if p_press is not null and jsonb_typeof(p_press) = 'object' then
     pr := _bz_press(c.id, (p_press->>'round')::int, (p_press->>'ms')::double precision,
                     (p_press->>'rtt')::real, (p_press->>'err')::real, coalesce((p_press->>'n')::int, 1));
-  end if;
-  -- зарегистрировался в игре ШПА после входа сюда — профбюро подтянется из списка выезда
-  if c.tg_id is not null and c.team_src is distinct from 'roster' and c.team_src is distinct from 'host' then
-    perform _bz_roster_sync(c.id);
   end if;
   select * into g from bz_game where id = 1;
   select opens_ms into opens from bz_rounds where id = g.round_id;
@@ -272,63 +340,38 @@ begin
   return res || jsonb_build_object('t0', t0, 't', bz_ms(), 'press', pr);
 end $$;
 
--- ───────────────────────── профбюро, кнопка ─────────────────────────
+-- ───────────────────────── кнопка ─────────────────────────
 
-create or replace function public._bz_join(p_client bigint, p_team int) returns text
-language plpgsql volatile security definer set search_path = public as $$
-declare c bz_clients; g bz_game; tm bz_teams;
+/** Ошибка, если человек не может жать за свою команду (null — может). */
+create or replace function public._bz_need_team(c bz_clients) returns text
+language plpgsql stable security definer set search_path = public as $$
 begin
-  select * into c from bz_clients where id = p_client;
-  select * into g from bz_game where id = 1;
-  select * into tm from bz_teams where id = p_team and active;
-  if tm.id is null then return 'Такой команды нет'; end if;
-  if c.team_id = tm.id then return null; end if;
-  if c.team_src = 'roster' then return 'Твоё профбюро взято из списка выезда ШПА. Если оно неверное — подойди к ведущему.'; end if;
-  if c.team_src = 'host' then return 'Твоё профбюро закрепил ведущий — сменить может только он.'; end if;
-  if c.team_id is not null and (c.team_at < now() - interval '10 minutes' or g.vote_status = 'open'
-      or exists(select 1 from bz_votes where client_id = c.id)) then
-    return 'Профбюро уже выбрано. Сменить его может ведущий.';
+  if c.roster_id is null and c.team_id is null then return 'Сначала войди по ФИО и группе'; end if;
+  if c.team_id is null then
+    if exists(select 1 from roster where id = c.roster_id and faction = 'profkom') then
+      return 'Оргкомитет не жмёт кнопку за команды';
+    end if;
+    return 'Твоего профбюро нет среди команд — подойди к ведущему';
   end if;
-  update bz_clients set team_id = tm.id, team_src = 'self', team_at = now() where id = c.id;
-  update bz_teams set captain = null, claimed_at = null where captain = c.id and id <> tm.id;
   return null;
 end $$;
 
-/** Выбор своего профбюро. */
-create or replace function public.bz_join(p_token text, p_team int) returns jsonb
-language plpgsql volatile security definer set search_path = public as $$
-declare c bz_clients := _bz_client(p_token); e text;
-begin
-  if c.id is null then return jsonb_build_object('ok', false, 'code', 'auth'); end if;
-  perform 1 from bz_game where id = 1 for update;
-  e := _bz_join(c.id, p_team);
-  if e is not null then return jsonb_build_object('ok', false, 'error', e); end if;
-  perform _bz_bump();
-  return jsonb_build_object('ok', true);
-end $$;
-
-/** «Кнопку за команду жму я» — только за своё профбюро (без профбюро — сначала вступает в эту команду). */
+/** «Кнопку за команду жму я» — только за своё профбюро. */
 create or replace function public.bz_claim(p_token text, p_team int) returns jsonb
 language plpgsql volatile security definer set search_path = public as $$
 declare c bz_clients := _bz_client(p_token); tm bz_teams; g bz_game; cap bz_clients; e text; mine bz_teams;
 begin
   if c.id is null then return jsonb_build_object('ok', false, 'code', 'auth'); end if;
   select * into g from bz_game where id = 1 for update;
+  select * into c from bz_clients where id = c.id;
   select * into tm from bz_teams where id = p_team and active for update;
   if tm.id is null then return jsonb_build_object('ok', false, 'error', 'Такой команды нет'); end if;
   if tm.captain = c.id then return jsonb_build_object('ok', true); end if;
-  if c.team_id is null and c.team_src = 'roster' then
-    return jsonb_build_object('ok', false, 'error', 'Организаторы не жмут кнопку за команды');
-  end if;
-  if c.team_id is distinct from tm.id then
-    if c.team_id is not null then
-      select * into mine from bz_teams where id = c.team_id;
-      if c.team_src <> 'self' or c.team_at < now() - interval '10 minutes' then
-        return jsonb_build_object('ok', false, 'error', format('Ты в профбюро «%s» — жать кнопку можно только за свою команду.', mine.name));
-      end if;
-    end if;
-    e := _bz_join(c.id, tm.id);
-    if e is not null then return jsonb_build_object('ok', false, 'error', e); end if;
+  e := _bz_need_team(c);
+  if e is not null then return jsonb_build_object('ok', false, 'error', e); end if;
+  if c.team_id <> tm.id then
+    select * into mine from bz_teams where id = c.team_id;
+    return jsonb_build_object('ok', false, 'error', format('Ты в профбюро «%s» — жать кнопку можно только за свою команду.', mine.name));
   end if;
   if g.teams_locked then return jsonb_build_object('ok', false, 'error', 'Ведущий закрыл выбор, кто жмёт кнопку. Подойди к ведущему.'); end if;
   if tm.captain is not null then
@@ -347,11 +390,13 @@ end $$;
  */
 create or replace function public.bz_assign(p_token text, p_client bigint) returns jsonb
 language plpgsql volatile security definer set search_path = public as $$
-declare c bz_clients := _bz_client(p_token); g bz_game; tm bz_teams; target bz_clients; cap bz_clients;
+declare c bz_clients := _bz_client(p_token); g bz_game; tm bz_teams; target bz_clients; cap bz_clients; e text;
 begin
   if c.id is null then return jsonb_build_object('ok', false, 'code', 'auth'); end if;
-  if c.team_id is null then return jsonb_build_object('ok', false, 'error', 'Сначала выбери своё профбюро'); end if;
   select * into g from bz_game where id = 1 for update;
+  select * into c from bz_clients where id = c.id;
+  e := _bz_need_team(c);
+  if e is not null then return jsonb_build_object('ok', false, 'error', e); end if;
   select * into tm from bz_teams where id = c.team_id and active for update;
   if tm.id is null then return jsonb_build_object('ok', false, 'error', 'Твоей команды нет в игре'); end if;
   if g.teams_locked then return jsonb_build_object('ok', false, 'error', 'Ведущий закрыл выбор, кто жмёт кнопку. Подойди к ведущему.'); end if;
@@ -374,17 +419,10 @@ language plpgsql volatile security definer set search_path = public as $$
 declare c bz_clients := _bz_client(p_token); g bz_game; k bz_clips; tname text;
 begin
   if c.id is null then return jsonb_build_object('ok', false, 'code', 'auth'); end if;
-  select * into g from bz_game where id = 1;
+  select * into g from bz_game where id = 1 for update;
+  select * into c from bz_clients where id = c.id;
   if g.vote_status <> 'open' then return jsonb_build_object('ok', false, 'error', 'Голосование сейчас закрыто'); end if;
-  if c.kind = 'web' and not g.vote_web then
-    return jsonb_build_object('ok', false, 'error', 'Голосовать можно только через Telegram-бота — так один человек голосует один раз');
-  end if;
-  if g.vote_roster_only and c.team_src is distinct from 'roster' then
-    return jsonb_build_object('ok', false, 'error', 'Голосуют только участники выезда, зарегистрированные в игре ШПА через Telegram');
-  end if;
-  if c.team_id is null and c.team_src is distinct from 'roster' then
-    return jsonb_build_object('ok', false, 'error', 'Сначала выбери своё профбюро');
-  end if;
+  if c.roster_id is null then return jsonb_build_object('ok', false, 'error', 'Сначала войди по ФИО и группе — голосуют участники выезда'); end if;
   if p_clip is null then
     delete from bz_votes where client_id = c.id;
   else
@@ -459,10 +497,11 @@ begin
       if not found then insert into bz_teams (num, name, code) values (i, nm, _bz_code(nm)); end if;
     end loop;
     update bz_teams set active = false, captain = null, claimed_at = null where num > array_length(names, 1);
-    -- участники из списка выезда — в команду своего профбюро по новому списку
-    update bz_clients c set team_id = (select id from bz_teams tm where tm.active and tm.code = r.faction order by num limit 1)
-      from roster r where c.team_src = 'roster' and r.tg_id = c.tg_id;
+    -- вошедшие по списку выезда — в команду своего профбюро по новому списку
+    update bz_clients c set team_id = _bz_team_for(r.faction) from roster r where c.team_src = 'roster' and r.id = c.roster_id;
     update bz_clients set team_id = null where team_id in (select id from bz_teams where not active);
+    update bz_teams tm set captain = null, claimed_at = null
+      where captain is not null and not exists(select 1 from bz_clients c where c.id = tm.captain and c.team_id = tm.id);
 
   elsif p_act = 'release' then
     update bz_teams set captain = null, claimed_at = null where id = (a->>'team')::int;
@@ -480,9 +519,7 @@ begin
       pts_ok = case when a ? 'pts_ok' then greatest(0, least(100, (a->>'pts_ok')::int)) else pts_ok end,
       pts_bad = case when a ? 'pts_bad' then greatest(0, least(100, (a->>'pts_bad')::int)) else pts_bad end,
       auto_close = case when a ? 'auto_close' then (a->>'auto_close')::boolean else auto_close end,
-      vote_title = case when a ? 'vote_title' and btrim(a->>'vote_title') <> '' then left(btrim(a->>'vote_title'), 60) else vote_title end,
-      vote_roster_only = case when a ? 'vote_roster_only' then (a->>'vote_roster_only')::boolean else vote_roster_only end,
-      vote_web = case when a ? 'vote_web' then (a->>'vote_web')::boolean else vote_web end
+      vote_title = case when a ? 'vote_title' and btrim(a->>'vote_title') <> '' then left(btrim(a->>'vote_title'), 60) else vote_title end
     where id = 1;
 
   elsif p_act = 'new_game' then
@@ -526,15 +563,15 @@ begin
     end loop;
 
   elsif p_act = 'member' then
-    -- ведущий переводит человека в другое профбюро (team = null — без профбюро)
+    -- ведущий переводит человека в другое профбюро (если в списке выезда ошибка); team = null — без профбюро
     cid := (a->>'client')::bigint; tid := nullif(a->>'team', '')::int;
     if not exists(select 1 from bz_clients where id = cid) then return jsonb_build_object('error', 'Нет такого человека'); end if;
     if tid is not null and not exists(select 1 from bz_teams where id = tid and active) then return jsonb_build_object('error', 'Нет такой команды'); end if;
-    update bz_clients set team_id = tid, team_src = case when tid is null then null else 'host' end, team_at = now() where id = cid;
+    update bz_clients set team_id = tid, team_src = 'host', team_at = now() where id = cid;
     update bz_teams set captain = null, claimed_at = null where captain = cid and id is distinct from tid;
     -- голос за клип нового своего профбюро больше не считается
     delete from bz_votes bv using bz_clips k where bv.client_id = cid and k.id = bv.clip_id and k.team_id = tid;
-    update bz_votes set team_id = tid, src = case when tid is null then null else 'host' end where client_id = cid;
+    update bz_votes set team_id = tid, src = 'host' where client_id = cid;
 
   elsif p_act = 'captain' then
     -- ведущий назначает, кто жмёт кнопку за команду (человек переходит в это профбюро, если был в другом)
@@ -545,6 +582,14 @@ begin
     update bz_clients set team_id = tid, team_src = 'host', team_at = now() where id = cid and team_id is distinct from tid;
     delete from bz_votes bv using bz_clips k where bv.client_id = cid and k.id = bv.clip_id and k.team_id = tid;
     update bz_teams set captain = cid, claimed_at = now() where id = tid;
+
+  elsif p_act = 'unbind' then
+    -- сбросить вход по ФИО: телефон снова попросит ФИО и группу, голос и кнопка снимаются
+    cid := (a->>'client')::bigint;
+    update bz_teams set captain = null, claimed_at = null where captain = cid;
+    delete from bz_votes where client_id = cid;
+    update bz_clients set roster_id = null, fio = null, grp = null, team_id = null, team_src = null, team_at = now() where id = cid;
+    if not found then return jsonb_build_object('error', 'Нет такого человека'); end if;
 
   elsif p_act = 'kick' then
     -- убрать человека совсем (например, лишние входы из браузера): его голос и кнопка тоже снимаются
@@ -560,9 +605,9 @@ begin
   return _bz_view(true, null) || jsonb_build_object('t', bz_ms());
 end $$;
 
-revoke all on function public._bz_code(text), public._bz_roster_sync(bigint), public._bz_join(bigint, int),
-  public._bz_view(boolean, bigint), public.bz_register(bigint, text, text) from public, anon, authenticated;
-grant execute on function public.bz_register(bigint, text, text) to service_role;
-grant execute on function public.bz_join(text, int), public.bz_vote(text, int), public.bz_claim(text, int), public.bz_assign(text, bigint),
+revoke all on function public._bz_code(text), public._bz_team_for(text), public._bz_need_team(public.bz_clients),
+  public._bz_issue(text, text, text, text), public._bz_view(boolean, bigint) from public, anon, authenticated;
+grant execute on function public.bz_login(text, text, text, text), public.bz_logout(text),
+  public.bz_vote(text, int), public.bz_claim(text, int), public.bz_assign(text, bigint),
   public.bz_tick(text, bigint, double precision, real, real, int, double precision, jsonb, text),
   public.bz_host(text, text, jsonb) to anon, authenticated;

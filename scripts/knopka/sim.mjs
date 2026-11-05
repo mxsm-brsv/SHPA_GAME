@@ -80,8 +80,9 @@ for (let i = 0; i < 10; i++) {
   const store = new Map();
   const link = new TeamLink({ api, clock, token: reg.token, app: 'sim', store: { get: (k) => store.get(k) ?? null, set: (k, v) => store.set(k, v) },
     wallNow: () => Date.now() + (p.skew ?? 0) });
-  const c = await local.rpc('bz_claim', { p_token: reg.token, p_team: teams[i].id });
-  if (!c.ok) throw new Error('claim ' + JSON.stringify(c));
+  // кто жмёт — назначает ведущий (сами телефоны входят по ФИО из списка выезда, а у теста ФИО нет)
+  const c = await H('captain', { team: teams[i].id, client: reg.id });
+  if (c?.error) throw new Error('captain ' + JSON.stringify(c));
   phones.push({ i, p, link, clock, team: teams[i].id, errs: [], seenLag: [], atPress: [] });
 }
 phones.forEach((ph) => ph.link.start());

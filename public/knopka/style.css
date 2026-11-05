@@ -175,6 +175,12 @@ button.bv:disabled { opacity: .45; cursor: default; }
 .pick { position: relative; padding: 54px 16px 24px; }
 .pick h1 { font-size: 28px; margin: 0 0 8px; text-shadow: 0 0 18px rgba(0, 60, 110, .3); }
 .pick .lead { margin: 0 0 18px; max-width: 34em; }
+.pick.login .card-form { margin: 0 0 4px; }
+.pick.login .err:empty { margin: 0; min-height: 0; }
+.demo-hint { margin-top: 16px; padding-top: 14px; border-top: 1px dashed #BFE3F7; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px; color: var(--muted); }
+.demo-hint > span { width: 100%; }
+.chip { border: 1px solid #BFE3F7; background: var(--ice); color: var(--navy); border-radius: 999px; padding: 6px 12px; font: inherit; font-size: 13px; cursor: pointer; }
+.chip:active { background: #D3EAF7; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .tile {
   display: flex; align-items: center; gap: 10px; text-align: left; min-height: 64px; padding: 10px 12px;
