@@ -51,7 +51,7 @@ QR показывает **организатор** на своём телефо�
 | Вопросы | `content/questions.json` (банк открыт в «Подготовке»); генератор и ручные вопросы — `scripts/gen-bank/` |
 | Публичные настройки | `deploy.env` — адрес Supabase, ключ anon, ник бота, канал, тест-режим |
 | Эфир от Claude | `public/live.json` — Claude правит его через GitHub, через 1–2 минуты сообщение у всех |
-| Проверка SQL | `supabase/tests/run.sh` — чистый PostgreSQL 16 + заглушки Supabase + сценарии v2–v7 |
+| Проверка SQL | `supabase/tests/run.sh` — чистый PostgreSQL 16 + заглушки Supabase + сценарии v2–v8 с защитой safeupdate, как в Supabase (UPDATE/DELETE только с WHERE; `check_where.py` проверяет все функции) |
 
 Без ключей Supabase игра работает в демо-режиме: прогресс в браузере, остальные игроки — боты. Так собрано превью (`npm run build:preview`).
 
