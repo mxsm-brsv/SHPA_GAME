@@ -12,8 +12,8 @@ js() { SRC="$1" node -e 'process.stdout.write(JSON.stringify(eval("(" + process.
 NAME=$(curl -sS "$API/getMyName" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{console.log(JSON.parse(s).result.name)}catch{console.log("")}})')
 if [ "$NAME" != "ШПА" ]; then echo "имя «ШПА»: $(call setMyName "$(js '{name:"ШПА"}')" | res)"; else echo "имя: уже «ШПА»"; fi
 
-echo "короткое описание: $(call setMyShortDescription "$(js '{short_description:"Игра Школы профсоюзного актива МЭИ ⚡ Задания, QR-отметки, подготовка к конкурсу, битва профбюро и мерч за баллы"}')" | res)"
-echo "описание: $(call setMyDescription "$(js '{description:"⚡ ШПА — игра выезда Школы профсоюзного актива МЭИ.\n\n🎯 Задания и QR-отметки на блоках\n📚 1000+ вопросов к правовому конкурсу\n🗺 Битва профбюро за настоящий кампус МЭИ\n🎮 Мини-игры каждый день\n🛍 Мерч ППО за баллы\n\nНажми «Старт», потом «Играть» — вход по ФИО и группе."}')" | res)"
+echo "короткое описание: $(call setMyShortDescription "$(js '{short_description:"Игра Школы профсоюзного актива МЭИ. Задания, отметки на блоках, подготовка к конкурсу, битва профбюро и мерч за баллы."}')" | res)"
+echo "описание: $(call setMyDescription "$(js '{description:"ШПА — игра выезда Школы профсоюзного актива МЭИ.\n\n— Задания и отметки на блоках\n— Больше 1000 вопросов к правовому конкурсу\n— Битва профбюро за настоящий кампус МЭИ\n— Мини-игры и штурм профкома\n— Мерч ППО за баллы\n\nНажми «Старт», затем «Играть». Вход — по ФИО и группе."}')" | res)"
 echo "команды: $(call setMyCommands "$(js '{commands:[{command:"start",description:"Меню и кнопка «Играть»"},{command:"me",description:"Мои баллы и место"},{command:"help",description:"Как играть"},{command:"channel",description:"Канал профкома"}]}')" | res)"
 echo "кнопка меню → $GAME_URL: $(call setChatMenuButton "$(GAME_URL="$GAME_URL" js '{menu_button:{type:"web_app",text:"Играть",web_app:{url:process.env.GAME_URL}}}')" | res)"
 

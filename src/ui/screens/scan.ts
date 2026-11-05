@@ -35,7 +35,7 @@ export function renderQr(app: App) {
     <div class="section-h">Как отметиться</div>
     <div class="scan-how card">
       <div class="scan-sample">${qrSvg('SHPA:L:PRIMER')}<span>пример</span></div>
-      <div class="small">1. На блоке организатор показывает QR — на телефоне или на экране зала.<br>2. Нажми «Сканировать» и наведи камеру.<br>3. Не сканируется — введи 6 знаков под QR.<br><span class="muted">Баллы — раз за блок. «Я — скорость» — только первым.</span></div>
+      <div class="small">1. На блоке ${app.cfg.checkinHost ? `<b>${esc(app.cfg.checkinHost.name)}</b>` : 'организатор'} показывает QR — на телефоне или на экране зала.<br>2. Нажми «Сканировать» и наведи камеру.<br>3. Не сканируется — введи 6 знаков под QR.<br><span class="muted">Баллы — раз за блок. «Я — скорость» — только первым.</span></div>
     </div>
     <div class="row" style="gap:8px;margin-top:10px">
       <button class="btn btn-blue grow btn-col" data-act="word">${icon('sparkle', 20)}<span class="sub">Кодовое слово</span></button>

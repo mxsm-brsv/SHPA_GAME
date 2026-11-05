@@ -1,6 +1,8 @@
 // Магазин мерча: стартовый набор для демо и теста. На сервере список ведут организаторы в панели «Мерч».
 // Цена — в баллах. Покупка не уменьшает рейтинг: баллы на счёте = заработанные баллы − потраченные в магазине.
 export interface AutoDiscount { afterHours: number; stepPct: number; maxPct: number }
+/** Цена по остатку: когда осталось ≤ left штук, базовая цена = price. */
+export interface PriceTier { left: number; price: number }
 
 export interface MerchItem {
   id: string;
@@ -13,6 +15,7 @@ export interface MerchItem {
   perPerson: number;      // сколько штук в одни руки
   discount: number;       // ручная скидка, %
   auto: AutoDiscount | null; // автоскидка, если товар не покупают
+  tiers?: PriceTier[];       // цена по остатку (условия организаторов)
   lastSaleAt: number;     // с этого момента считается автоскидка
   active: boolean;
 }
@@ -42,7 +45,19 @@ export const DEMO_MERCH: Omit<MerchItem, 'lastSaleAt'>[] = [
   { id: 'hoodie', name: 'Худи ППО', emoji: '🧥', text: 'Главный приз магазина', price: 800, stock: 2, total: 2, perPerson: 1, discount: 0, auto: null, active: true },
 ];
 
-/** Текущая цена с учётом ручной скидки и автоскидки за «простой». */
+/** Базовая цена с учётом остатка: из подходящих условий берётся то, где порог меньше всего (как на сервере). */
+export function basePrice(it: MerchItem) {
+  const t = (it.tiers ?? []).filter((x) => x.price > 0 && it.stock <= x.left).sort((a, b) => a.left - b.left)[0];
+  return t ? t.price : it.price;
+}
+
+/** Следующее условие: когда останется ≤ left — цена станет price (для подсказки в магазине). */
+export function nextTier(it: MerchItem) {
+  const base = basePrice(it);
+  return (it.tiers ?? []).filter((x) => x.price > 0 && x.left < it.stock && x.price !== base).sort((a, b) => b.left - a.left)[0] ?? null;
+}
+
+/** Текущая цена с учётом остатка, ручной скидки и автоскидки за «простой». */
 export function merchPrice(it: MerchItem, now = Date.now()) {
   let auto = 0;
   if (it.auto && it.auto.afterHours > 0 && it.stock > 0) {
@@ -50,7 +65,8 @@ export function merchPrice(it: MerchItem, now = Date.now()) {
     auto = Math.min(it.auto.maxPct, Math.max(0, steps) * it.auto.stepPct);
   }
   const pct = Math.max(it.discount, auto);
-  return { price: Math.max(1, Math.ceil(it.price * (1 - pct / 100))), pct, auto: auto > it.discount };
+  const base = basePrice(it);
+  return { price: Math.max(1, Math.ceil(base * (1 - pct / 100))), pct, auto: auto > it.discount, base };
 }
 
 /** Через сколько минут подешевеет (для подсказки «скоро скидка»). */

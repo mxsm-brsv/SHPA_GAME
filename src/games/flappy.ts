@@ -76,7 +76,7 @@ export function openFlappy(app: App, ctx?: PlayCtx) {
     sky.addColorStop(0, mix('#3b6fb6', '#0b0d2a', night)); sky.addColorStop(1, mix('#f0b27a', '#2c3080', night));
     g.fillStyle = sky; g.fillRect(0, 0, W, H);
     if (night > 0) { g.fillStyle = `rgba(255,255,255,${night * 0.8})`; for (let i = 0; i < 30; i++) g.fillRect((i * 71 - dist * 0.05) % W + (i * 71 - dist * 0.05 < 0 ? W : 0), (i * 37) % (H * 0.5), 2, 2); }
-    // дальний план: силуэт ГУК и труба ТЭЦ
+    // дальний план: силуэт ГК и труба ТЭЦ
     const far = (dist * 0.2) % (W + 300);
     g.fillStyle = mix('#5a70b0', '#1d2056', night);
     for (let k = 0; k < 2; k++) {

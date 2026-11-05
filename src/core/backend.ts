@@ -6,6 +6,8 @@ import { TEST_MODE } from '../config/test';
 import type { CheckResult, Question } from './questions';
 import type { GameState, Role } from './state';
 import type { Order, WorldState } from './world';
+import type { VoteAction, VoteState } from './vote';
+import type { RaidHit, RaidState } from './raid';
 
 export interface LeaderRow { name: string; faction: FactionId | null; rating: number; contributed: number; power: number; me?: boolean; bot?: boolean }
 export interface FactionRow { faction: FactionId; players: number; limit: number; rating: number; influence: number; xp: number; ratusha: number; score: number }
@@ -38,7 +40,13 @@ export interface LectureSession {
 export interface Announcement { id: string; text: string; kind: 'info' | 'alert' | 'win'; at: number; until?: number | null; author?: string; source?: 'staff' | 'claude' }
 export interface RosterRow { id: string; fio: string; faction: FactionId; group: string; role: Role; bound: boolean; tg?: boolean }
 export interface Wallet { earned: number; spent: number; balance: number }
-export interface GameConfig { shopOpen: boolean; testMode: boolean; requireGroup: boolean }
+export interface GameConfig {
+  shopOpen: boolean; testMode: boolean; requireGroup: boolean;
+  /** Кто отмечает на блоках и начисляет баллы (null — все организаторы) */
+  checkinHost?: { id: number | string; name: string } | null;
+  /** Могу ли я открывать отметки на блоках и начислять баллы */
+  canCheckin?: boolean;
+}
 
 export interface Backend {
   mode: 'demo' | 'online';
@@ -54,7 +62,6 @@ export interface Backend {
   save(s: GameState): Promise<void>;
   config(): Promise<GameConfig>;
   /** value — сколько рейтинга стоит результат (0..30 для мини-игры). Возвращает начисленное. */
-  addGameRating(s: GameState, source: string, value: number): Promise<number>;
   claimTask(s: GameState, task: string, payload?: TaskPayload): Promise<SubmitResult>;
   submitTask(s: GameState, task: string, payload: TaskPayload): Promise<SubmitResult>;
   /** Кодовое слово, тайник, код лекции, личный QR знакомого. */
@@ -127,11 +134,23 @@ export interface Backend {
   staffRosterImport(text: string): Promise<string>;
   staffRosterReset(id: string): Promise<string>;
   staffSetSetting(key: 'shop_open' | 'require_group', value: boolean): Promise<void>;
+  /** Админ: кто отмечает (id строки списка выезда) или null — все организаторы. */
+  staffSetCheckinHost(rosterId: string | null): Promise<GameConfig>;
   /** Только админ: обнулить прогресс всех (подтверждение — слово «СБРОС»). */
   adminResetProgress(confirm: string): Promise<string>;
+  // ---- голосование «Работа со спонсорами» ----
+  voteState(): Promise<VoteState | null>;
+  voteCast(team: string, v: 1 | -1 | 0): Promise<VoteState>;
+  staffVoteSetup(title: string, teams: { id: string; name: string; faction: FactionId | null }[]): Promise<VoteState>;
+  staffVoteControl(action: VoteAction, team?: string | null): Promise<VoteState>;
+  // ---- захват профкома ----
+  raidState(): Promise<RaidState | null>;
+  raidHit(dmg: number): Promise<RaidHit>;
+  staffRaidSet(hp: number): Promise<RaidState>;
+  staffRaidReset(): Promise<RaidState>;
 }
 
-export { grantByCaps, taskAvailable, markDone } from './rules';
+export { grantGameCoins, taskAvailable, markDone } from './rules';
 
 import { DemoBackend } from './backend-demo';
 import { OnlineBackend } from './backend-online';

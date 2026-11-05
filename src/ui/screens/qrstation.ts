@@ -21,11 +21,15 @@ const KINDS: { id: QrKind; name: string; text: string; points: number; minutes: 
 
 /** Форма открытия отметки. Встраивается во вкладку панели организатора. */
 export async function drawQrStation(app: App, body: HTMLElement, onChange: () => void) {
-  let kind: QrKind = 'lecture';
-  body.innerHTML = `<div class="card col" style="gap:8px">
+  const cfg = await app.backend.config().catch(() => app.cfg);
+  // отмечает один назначенный организатор: остальным доступен только «Я — скорость»
+  const only = cfg.checkinHost && cfg.canCheckin === false ? cfg.checkinHost.name : null;
+  const kinds = only ? KINDS.filter((k) => k.id === 'speed') : KINDS;
+  let kind: QrKind = kinds[0].id;
+  body.innerHTML = `${only ? `<div class="card small" style="border-color:var(--gold)">Отметки на блоках ведёт <b class="gold">${esc(only)}</b> — участники отмечаются у него. Тебе доступен «Я — скорость» (спрятанный QR).</div>` : ''}<div class="card col" style="gap:8px">
       <b>Открыть отметку по QR</b>
       <div class="small muted">QR появится у тебя на телефоне во весь экран. Участники подходят к тебе и сканируют его в игре (кнопка «QR» на базе) или вводят код под ним.</div>
-      <div class="qk" data-kinds>${KINDS.map((k) => `<button class="qk-b ${k.id === kind ? 'on' : ''}" data-k="${k.id}"><b>${esc(k.name)}</b><span>${esc(k.text)}</span></button>`).join('')}</div>
+      <div class="qk" data-kinds>${kinds.map((k) => `<button class="qk-b ${k.id === kind ? 'on' : ''}" data-k="${k.id}"><b>${esc(k.name)}</b><span>${esc(k.text)}</span></button>`).join('')}</div>
       <div data-titlebox></div>
       <div class="mgrid">
         <label>Баллов<input class="input-ans" type="number" data-pts min="1" max="${LECTURE.maxPoints}"></label>

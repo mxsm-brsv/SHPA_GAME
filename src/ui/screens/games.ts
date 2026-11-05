@@ -1,5 +1,5 @@
 import { MINIGAMES, gameById, type GameId } from '../../config/minigames';
-import { DAILY_GAME_RATING_CAP, DAILY_MINIGAME_CAP } from '../../config/economy';
+import { DAILY_GAME_COINS, DAILY_MINIGAME_COINS } from '../../config/economy';
 import { MAP_EVENTS } from '../../config/map';
 import { icon } from '../../art/icons';
 import { $, el, esc, fmt, mmss, onAct } from '../../lib/dom';
@@ -10,14 +10,14 @@ import { joinEvent } from './map';
 
 export function renderGames(app: App) {
   const s = app.state;
-  const left = Math.max(0, DAILY_GAME_RATING_CAP - s.daily.game);
+  const left = Math.max(0, DAILY_GAME_COINS - (s.daily.day === new Date(Date.now() + 3 * 3600_000).toISOString().slice(0, 10) ? s.daily.game : 0));
   const best = (id: GameId) => s.daily.best[id];
   const feat = gameById('fever');
   const rest = MINIGAMES.filter((g) => g.id !== 'fever');
   const feverStars = Object.values(s.fever.stars).reduce((a, b) => a + b, 0);
   const node = el(`<div class="screen"><div class="page">
     <div class="page-title"><h1>Игры</h1></div>
-    <div class="small muted">Лучший результат дня в каждой игре — до ${DAILY_MINIGAME_CAP} баллов. Всего от игры — до ${DAILY_GAME_RATING_CAP} в сутки, сегодня осталось <b class="gold">${left}</b>.</div>
+    <div class="small muted">Игры приносят профкоины, баллы — только задания и образовалка. Бонус за лучший результат дня — до ${DAILY_MINIGAME_COINS} в каждой игре, сегодня осталось <b class="gold">${fmt(left)}</b>.</div>
     <div class="event-card" data-ev><div class="muted small">Ищу мероприятия на карте…</div></div>
     <div class="feature">
       <div class="art">${icon('desk', 64, '#fff3e0', 1.6)}</div>

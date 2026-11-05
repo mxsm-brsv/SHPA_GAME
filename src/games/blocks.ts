@@ -32,15 +32,28 @@ export function openBlocks(app: App, ctx?: PlayCtx) {
   const fxEl = node.querySelector<HTMLElement>('[data-fx]')!;
   const comboEl = node.querySelector<HTMLElement>('[data-combo]')!;
 
+  const fits = (p: Pick<Piece, 'cells'>, r: number, c: number) => p.cells.every((row, i) => row.every((v, j) => !v || (r + i < N && c + j < N && r + i >= 0 && c + j >= 0 && !grid[r + i][c + j])));
+  const fitsSomewhere = (p: Pick<Piece, 'cells'>) => grid.some((_, r) => grid[r].some((__, c) => fits(p, r, c)));
+  const anyFit = () => pieces.some((p) => !p.used && fitsSomewhere(p));
+  /** Новая тройка: из нескольких случайных берём ту, где помещаются все фигуры (или хотя бы больше всего) —
+   *  чтобы игра не обрывалась тройкой, в которой ничего не встаёт, хотя место на поле ещё есть. */
   const deal = () => {
-    pieces = Array.from({ length: 3 }, () => {
-      const i = Math.floor(Math.random() * SHAPES.length);
+    const filled = grid.flat().filter(Boolean).length / (N * N);
+    const roll = () => Array.from({ length: 3 }, () => {
+      // на тесном поле крупные фигуры (3×3, «уголок» 3×3) выпадают реже
+      let i = Math.floor(Math.random() * SHAPES.length);
+      if (filled > 0.45 && SHAPES[i].flat().filter(Boolean).length >= 5 && Math.random() < 0.7) i = Math.floor(Math.random() * 8);
       const k = Math.floor(Math.random() * COLORS.length);
       return { cells: SHAPES[i], color: COLORS[k], label: LABELS[k], used: false };
     });
+    let best = roll(), bestFit = best.filter(fitsSomewhere).length;
+    for (let t = 0; t < 40 && bestFit < 3; t++) {
+      const cand = roll();
+      const f = cand.filter(fitsSomewhere).length;
+      if (f > bestFit) { best = cand; bestFit = f; }
+    }
+    pieces = best;
   };
-  const fits = (p: Piece, r: number, c: number) => p.cells.every((row, i) => row.every((v, j) => !v || (r + i < N && c + j < N && r + i >= 0 && c + j >= 0 && !grid[r + i][c + j])));
-  const anyFit = () => pieces.some((p) => !p.used && grid.some((_, r) => grid[r].some((__, c) => fits(p, r, c))));
 
   /** Какие строки и столбцы заполнятся, если поставить фигуру сюда. */
   const fullAfter = (p: Piece | null, r: number, c: number) => {
@@ -128,7 +141,7 @@ export function openBlocks(app: App, ctx?: PlayCtx) {
   };
 
   // перетаскивание
-  let drag: { i: number; ghostEl: HTMLElement; offR: number; offC: number } | null = null;
+  let drag: { i: number; ghostEl: HTMLElement; offR: number; offC: number; pid: number } | null = null;
   const cellAt = (x: number, y: number) => {
     const r = gEl.getBoundingClientRect();
     const cs = r.width / N;
@@ -136,14 +149,14 @@ export function openBlocks(app: App, ctx?: PlayCtx) {
   };
   tEl.addEventListener('pointerdown', (e) => {
     const pe = (e.target as HTMLElement).closest<HTMLElement>('[data-i]');
-    if (!pe || over || busy) return;
+    if (!pe || over || busy || drag) return; // второй палец, пока тянем первую фигуру, игнорируем
     const i = Number(pe.dataset.i);
     const p = pieces[i];
     if (p.used) return;
     const cs = gEl.getBoundingClientRect().width / N;
     const ghostEl = el(`<div class="bl-drag" style="grid-template-columns:repeat(${p.cells[0].length},${cs}px)">${p.cells.map((row) => row.map((v) => `<div class="${v ? 'bl-c on' : ''}" style="width:${cs}px;height:${cs}px;${v ? `--c:${p.color}` : ''}"></div>`).join('')).join('')}</div>`);
     document.body.appendChild(ghostEl);
-    drag = { i, ghostEl, offR: p.cells.length / 2, offC: p.cells[0].length / 2 };
+    drag = { i, ghostEl, offR: p.cells.length / 2, offC: p.cells[0].length / 2, pid: e.pointerId };
     pe.classList.add('used');
     move(e.clientX, e.clientY);
     haptic();
@@ -158,10 +171,10 @@ export function openBlocks(app: App, ctx?: PlayCtx) {
     const at = cellAt(gx + cs / 2, gy + cs / 2);
     drawGrid({ p, r: at.r, c: at.c, ok: fits(p, at.r, at.c) });
   };
-  const mv = (e: PointerEvent) => move(e.clientX, e.clientY);
+  const mv = (e: PointerEvent) => { if (drag && e.pointerId === drag.pid) move(e.clientX, e.clientY); };
   window.addEventListener('pointermove', mv);
   const up = (e: PointerEvent) => {
-    if (!drag) return;
+    if (!drag || e.pointerId !== drag.pid) return;
     const p = pieces[drag.i];
     const cs = gEl.getBoundingClientRect().width / N;
     const gx = e.clientX - drag.offC * cs, gy = e.clientY - drag.offR * cs - 70;
@@ -171,7 +184,11 @@ export function openBlocks(app: App, ctx?: PlayCtx) {
     if (!busy && fits(p, at.r, at.c)) place(p, at.r, at.c); else { drawGrid(); drawTray(); }
   };
   window.addEventListener('pointerup', up);
-  const cleanup = () => { window.removeEventListener('pointerup', up); window.removeEventListener('pointermove', mv); drag?.ghostEl.remove(); };
+  // жест прервала система (входящий звонок, шторка, мультитач): фигура возвращается в лоток, а не «зависает»
+  const cancel = () => { if (!drag) return; drag.ghostEl.remove(); drag = null; drawGrid(); drawTray(); };
+  window.addEventListener('pointercancel', cancel);
+  window.addEventListener('blur', cancel);
+  const cleanup = () => { window.removeEventListener('pointerup', up); window.removeEventListener('pointermove', mv); window.removeEventListener('pointercancel', cancel); window.removeEventListener('blur', cancel); drag?.ghostEl.remove(); drag = null; };
   sh.onExit(cleanup);
 
   const finish = async () => {

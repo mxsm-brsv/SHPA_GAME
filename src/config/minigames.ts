@@ -1,6 +1,6 @@
 // Мини-игры. status: ready — играбельна, soon — в разработке (показывается карточка «скоро»).
 export type GameId =
-  | 'fever' | 'ring' | 'runner' | 'stamp' | 'alias' | 'wordle' | 'bus' | 'blocks' | 'merge' | 'crossword' | 'categories' | 'stack' | 'flappy';
+  | 'fever' | 'ring' | 'runner' | 'stamp' | 'alias' | 'wordle' | 'bus' | 'blocks' | 'merge' | 'crossword' | 'categories' | 'stack' | 'flappy' | 'wheel';
 
 export interface MiniGame {
   id: GameId;
@@ -26,6 +26,7 @@ export const MINIGAMES: MiniGame[] = [
   { id: 'crossword', name: 'Профкроссворд', mech: 'кроссворд дня', text: 'Кроссворд по профсоюзным терминам', color: '#3a4f7a', icon: 'cross', status: 'ready' },
   { id: 'categories', name: 'Категории', mech: 'буква и 5 категорий', text: 'За 60 секунд назови слова на букву', color: '#1f7a7a', icon: 'list', status: 'ready' },
   { id: 'stack', name: 'Профбашня', mech: 'как Stack', text: 'Строй башню профкома: тап — поставить этаж, свисающее отпиливается', color: '#d0632f', icon: 'stack', status: 'ready' },
+  { id: 'wheel', name: 'Колесо профкома', mech: 'ставка и колесо', text: 'Ставь профкоины и крути: ×0, ×1, ×2 или редкий ×10. Тапай по колесу — закрутится быстрее', color: '#b8860b', icon: 'coin', status: 'ready' },
   { id: 'flappy', name: 'Молния', mech: 'как Flappy Bird', text: 'Молния профкома летит над кампусом между трубами ТЭЦ', color: '#0a83c0', icon: 'bolt', status: 'ready' },
 ];
 
