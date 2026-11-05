@@ -190,7 +190,9 @@ export class TeamLink {
   }
 
   get round() { return this.state?.round ?? null; }
-  get myTeam() { return this.state?.me?.team ?? null; }
+  /** Команда, за которую этот телефон жмёт кнопку (null — жмёт кто-то другой из профбюро). */
+  get myTeam() { return this.state?.me?.captain ? this.state.me.team : null; }
+  get isCaptain() { return !!this.state?.me?.captain; }
 
   /** Монотонный таймер «остановился» (телефон спал / вкладка была заморожена) — синхронизироваться заново. */
   checkSuspend() {
@@ -227,7 +229,10 @@ export class TeamLink {
     } finally { this.looping = false; }
     if (!this.running) return;
     clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.loop(), this.urgent ? 60 : this.live() ? this.fastMs : this.idleMs);
+    // зрителю (не жмёт кнопку) хватает пульса раз в 2–3 с: место ему не подтверждать, состояние придёт по версии
+    const fast = this.isCaptain ? this.fastMs : Math.max(this.fastMs, 1500);
+    const idle = this.isCaptain ? this.idleMs : Math.max(this.idleMs, 2500);
+    this.timer = setTimeout(() => this.loop(), this.urgent ? 60 : this.live() ? fast : idle);
   }
 
   async tick() {

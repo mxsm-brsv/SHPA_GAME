@@ -27,7 +27,7 @@ select pg_temp.ok((select count(*) from bz_teams where active) = 10, '10 про�
 
 \echo '--- выбор команды: одна команда — один капитан'
 select pg_temp.ok(bz_claim(:'ta', :t1)->>'ok' = 'true', 'Аня берёт команду 1');
-select pg_temp.ok(bz_claim(:'tb', :t1)->>'error' like '%уже играет Аня%', 'Борису команда 1 уже занята');
+select pg_temp.ok(bz_claim(:'tb', :t1)->>'error' like '%уже жмёт Аня%', 'Борису команда 1 уже занята');
 select pg_temp.ok(bz_claim(:'tb', :t2)->>'ok' = 'true', 'Борис берёт команду 2');
 select pg_temp.ok(bz_claim(:'ta', :t4)->>'ok' = 'true', 'Аня переходит в команду 4');
 select pg_temp.ok((select captain is null from bz_teams where id = :t1), '…и команда 1 освободилась');

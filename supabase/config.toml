@@ -16,6 +16,10 @@ verify_jwt = false
 [functions.bot]
 verify_jwt = false
 
-# «Кнопка»: вход капитана — подлинность проверяется подписью initData от Telegram
+# «Кнопка»: вход из Telegram — подлинность проверяется подписью initData
 [functions.knopka]
+verify_jwt = false
+
+# Бот вечерки: вебхук Telegram с секретом в заголовке
+[functions.vecherka]
 verify_jwt = false

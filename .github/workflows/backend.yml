@@ -4,7 +4,7 @@ name: Deploy backend
 on:
   push:
     branches: [main]
-    paths: ['supabase/**', 'content/**', 'deploy.env', 'scripts/seed-questions.mjs', 'scripts/supabase-*.sh', 'scripts/bot-setup.sh', 'public/bot/**', '.github/workflows/backend.yml']
+    paths: ['supabase/**', 'content/**', 'deploy.env', 'scripts/seed-questions.mjs', 'scripts/supabase-*.sh', 'scripts/bot-setup.sh', 'scripts/vecherka-setup.sh', 'public/bot/**', 'public/knopka/bot-avatar.jpg', '.github/workflows/backend.yml']
   workflow_dispatch:
 
 jobs:
@@ -27,6 +27,7 @@ jobs:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+      VECHERKA_BOT_TOKEN: ${{ secrets.VECHERKA_BOT_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - name: Настройки из deploy.env
@@ -62,9 +63,10 @@ jobs:
           if [ -n "$BOT_TOKEN" ]; then supabase secrets set --yes --project-ref "$PROJECT_REF" BOT_TOKEN="$BOT_TOKEN"; else echo "::warning::Нет секрета BOT_TOKEN — вход из Telegram и сообщения бота не заработают"; fi
           if [ -n "${TG_CHANNEL:-}" ]; then supabase secrets set --yes --project-ref "$PROJECT_REF" TG_CHANNEL="$TG_CHANNEL"; fi
           supabase secrets set --yes --project-ref "$PROJECT_REF" GAME_URL="$GAME_URL"
+          if [ -n "$VECHERKA_BOT_TOKEN" ]; then supabase secrets set --yes --project-ref "$PROJECT_REF" VECHERKA_BOT_TOKEN="$VECHERKA_BOT_TOKEN"; else echo "::notice::Нет секрета VECHERKA_BOT_TOKEN — бот вечерки не настроен (кнопка работает в браузере и через бот «ШПА»)"; fi
       - name: Функции
         run: |
-          for f in auth check-sub notify bot knopka; do supabase functions deploy "$f" --yes --project-ref "$PROJECT_REF" --no-verify-jwt; done
+          for f in auth check-sub notify bot knopka vecherka; do supabase functions deploy "$f" --yes --project-ref "$PROJECT_REF" --no-verify-jwt; done
       - name: Ключ сервиса
         run: ./scripts/supabase-keys.sh "$PROJECT_REF"
       - name: Банк вопросов
@@ -77,3 +79,6 @@ jobs:
       - name: Бот «ШПА»
         if: env.BOT_TOKEN != ''
         run: ./scripts/bot-setup.sh
+      - name: Бот вечерки (кнопка и голосование)
+        if: env.VECHERKA_BOT_TOKEN != ''
+        run: ./scripts/vecherka-setup.sh

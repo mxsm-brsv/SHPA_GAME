@@ -60,16 +60,6 @@ const HELP = [
   'Команды: /start — меню, /me — мои баллы, /channel — канал профкома.',
 ].join('\n');
 
-/** «Кнопка» для вечерних игр: открывается отдельной страницей рядом с игрой. */
-async function knopka(chat: number) {
-  if (!GAME_URL) return await send(chat, 'Кнопка ещё не настроена.');
-  return await tg('sendMessage', {
-    chat_id: chat, parse_mode: 'HTML',
-    text: '<b>Кнопка «Ты — лидер»</b>\n\nВыбери свою команду и жми, когда у команды готов ответ. Кто нажал первым, решают время касания и часы сервера, а не скорость интернета.',
-    reply_markup: { inline_keyboard: [[{ text: '🟡 Открыть кнопку', web_app: { url: `${GAME_URL}knopka/` } }]] },
-  });
-}
-
 async function send(chat: number, text: string, withKb = true) {
   return await tg('sendMessage', { chat_id: chat, text, parse_mode: 'HTML', disable_web_page_preview: true, ...(withKb ? { reply_markup: keyboard() } : {}) });
 }
@@ -96,10 +86,8 @@ Deno.serve(async (req) => {
     const msg = u?.message;
     if (msg?.chat?.type === 'private' && typeof msg.text === 'string') {
       const chat = msg.chat.id as number;
-      const parts = msg.text.trim().split(/\s+/);
-      const cmd = parts[0].replace(/@\w+$/, '').toLowerCase();
-      if (cmd === '/knopka' || cmd === '/кнопка' || (cmd === '/start' && parts[1] === 'knopka')) await knopka(chat);
-      else if (cmd === '/start' || cmd === '/menu') await start(chat, msg.from);
+      const cmd = msg.text.trim().split(/\s+/)[0].replace(/@\w+$/, '').toLowerCase();
+      if (cmd === '/start' || cmd === '/menu') await start(chat, msg.from);
       else if (cmd === '/help') await send(chat, HELP);
       else if (cmd === '/me') await send(chat, meText(await profile(msg.from.id), msg.from.first_name ?? ''));
       else if (cmd === '/channel') await send(chat, `Канал профкома МЭИ: https://t.me/${CHANNEL}\nПодпишись — это одно из заданий игры.`);

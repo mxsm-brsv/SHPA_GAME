@@ -14,6 +14,7 @@ jobs:
     env:
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+      VECHERKA_BOT_TOKEN: ${{ secrets.VECHERKA_BOT_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -62,3 +63,10 @@ jobs:
           fi
           echo "кнопка меню: $(tg getChatMenuButton | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);const b=j.result||{};console.log(b.type==="web_app"?b.text+" → "+b.web_app.url:"не настроена ("+b.type+")")})')"
           echo "картинка /start: $(curl -sS -o /dev/null -w '%{http_code}' "${GAME_URL}bot/start.jpg")"
+      - name: Бот вечерки
+        run: |
+          if [ -z "$VECHERKA_BOT_TOKEN" ]; then echo "нет секрета VECHERKA_BOT_TOKEN — бот вечерки не настроен"; exit 0; fi
+          vt() { curl -sS "https://api.telegram.org/bot$VECHERKA_BOT_TOKEN/$1"; }
+          echo "бот вечерки: $(vt getMe | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);console.log(j.ok?"@"+j.result.username+" «"+j.result.first_name+"»":"токен не подошёл: "+j.description)})')"
+          echo "кнопка меню: $(vt getChatMenuButton | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);const b=j.result||{};console.log(b.type==="web_app"?b.text+" → "+b.web_app.url:"не настроена ("+b.type+")")})')"
+          echo "вебхук: $(vt getWebhookInfo | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const r=JSON.parse(s).result||{};console.log((r.url?"есть":"нет")+", ожидают "+(r.pending_update_count??0)+(r.last_error_message?", ошибка: "+r.last_error_message:", ошибок нет"))})')"

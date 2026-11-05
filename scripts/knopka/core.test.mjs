@@ -62,7 +62,7 @@ function mkLink(opts = {}) {
   const calls = [];
   const api = fakeApi(async (fn, args) => { calls.push({ fn, args }); return opts.reply ? opts.reply(fn, args) : { v: 1 }; });
   const link = new TeamLink({ api, clock, token: 't', store: { get: (k) => store.get(k) ?? null, set: (k, v) => (v === null ? store.delete(k) : store.set(k, v)) }, wallNow: () => wall });
-  link.state = { v: 1, me: { team: 7 }, game: { lockout_ms: 1000 }, teams: [], round: { id: 3, status: 'open', opens_ms: 7000, presses: [] } };
+  link.state = { v: 1, me: { team: 7, captain: true }, game: { lockout_ms: 1000 }, teams: [], round: { id: 3, status: 'open', opens_ms: 7000, presses: [] } };
   return { link, clock, calls, store, setMono: (x) => { mono = x; }, setWall: (x) => { wall = x; }, get mono() { return mono; } };
 }
 {
@@ -112,9 +112,9 @@ function mkLink(opts = {}) {
   m.link.api = { rpc: (fn) => new Promise((res) => { resolvers.push(res); n++; }) };
   m.link.running = true;
   const a = m.link.tick(); const b = m.link.tick();
-  resolvers[1]({ v: 5, round: { id: 9, status: 'open', opens_ms: 0, presses: [] }, me: { team: 7 }, teams: [], t0: 1, t: 1 });
+  resolvers[1]({ v: 5, round: { id: 9, status: 'open', opens_ms: 0, presses: [] }, me: { team: 7, captain: true }, teams: [], t0: 1, t: 1 });
   await b;
-  resolvers[0]({ v: 4, round: { id: 8, status: 'closed', opens_ms: 0, presses: [] }, me: { team: 7 }, teams: [], t0: 1, t: 1 });
+  resolvers[0]({ v: 4, round: { id: 8, status: 'closed', opens_ms: 0, presses: [] }, me: { team: 7, captain: true }, teams: [], t0: 1, t: 1 });
   await a;
   assert.equal(m.link.state.round.id, 9);
   assert.equal(m.link.v, 5);

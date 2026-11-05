@@ -1,31 +1,37 @@
 // @ts-check
-// «Кнопка» — интерфейс: телефон команды, панель ведущего (?host) и экран для зала (?screen).
+// Вечерка ШПА — интерфейс: телефон участника (профбюро, кнопка, голосование), панель ведущего (?host)
+// и экран для зала (?screen). ?demo — то же самое без сервера (demo.js), для показа и репетиции.
 import { Api, ApiError, Clock, Poller, TeamLink, roundPhase, syncBurst } from './core.js';
+import { qrSvg } from './qr.js';
 
-/** @type {{url:string, key:string, bot?:string}} */
+/** @type {{url:string, key:string, bot?:string, mainApp?:boolean}} */
 const CFG = /** @type {any} */ (window).KNOPKA_CFG || { url: '', key: '' };
 const root = /** @type {HTMLElement} */ (document.getElementById('app'));
-const qs = new URLSearchParams(location.search);
-const BOT = (CFG.bot || 'shpa_game_bot').replace(/^@/, '');
-const JOIN_URL = `https://t.me/${BOT}?startapp=knopka`;
+// демо в рамке (srcdoc) передаёт режим через window.KNOPKA_QS — у такой страницы нет своего адреса
+const qs = new URLSearchParams(/** @type {any} */ (window).KNOPKA_QS ?? location.search);
+const DEMO = qs.has('demo');
+const BOT = (CFG.bot || '').replace(/^@/, '');
+const PAGE_URL = DEMO ? 'https://mxsm-brsv.github.io/SHPA_GAME/knopka/' : `${location.origin}${location.pathname}`;
+/** Ссылка для участников: бот вечерки (если настроен), иначе страница в браузере. */
+const JOIN_URL = BOT ? (CFG.mainApp ? `https://t.me/${BOT}?startapp=knopka` : `https://t.me/${BOT}?start=go`) : PAGE_URL;
 
-const LS = {
-  /** @param {string} k */ get(k) { try { return localStorage.getItem(k); } catch { return null; } },
-  /** @param {string} k @param {string|null} v */ set(k, v) { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* приватный режим */ } },
-};
+const memory = new Map();
+const LS = DEMO
+  ? { get: (k) => memory.get(k) ?? null, set: (k, v) => (v === null ? memory.delete(k) : memory.set(k, v)) }
+  : {
+    /** @param {string} k */ get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    /** @param {string} k @param {string|null} v */ set(k, v) { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch { /* приватный режим */ } },
+  };
 
 // ───────────────────────── мелочи ─────────────────────────
 
-/**
- * @param {string} tag @param {Record<string, any>|null} [props] @param {...any} kids
- * @returns {HTMLElement}
- */
+/** @param {string} tag @param {Record<string, any>|null} [props] @param {...any} kids @returns {HTMLElement} */
 function h(tag, props, ...kids) {
   const el = document.createElement(tag);
   for (const [k, v] of Object.entries(props || {})) {
     if (v === null || v === undefined || v === false) continue;
     if (k === 'class') el.className = v;
-    else if (k === 'text') el.textContent = v;
+    else if (k === 'html') el.innerHTML = v;
     else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
     else if (k === 'style') el.setAttribute('style', v);
     else el.setAttribute(k, v === true ? '' : String(v));
@@ -36,15 +42,17 @@ function h(tag, props, ...kids) {
   }
   return el;
 }
-/** Кнопка со скошенными углами. @param {string} cls @param {string|Node} label @param {(e:Event)=>void} on @param {Record<string,any>} [extra] */
+/** @param {string} cls @param {string|Node} label @param {(e:Event)=>void} on @param {Record<string,any>} [extra] */
 const bv = (cls, label, on, extra = {}) => h('button', { class: `bv ${cls}`, type: 'button', onclick: on, ...extra }, h('span', null, label));
+/** replaceChildren без «null» в тексте: пустые части пропускаются. @param {Element} el @param {...any} kids */
+const fill = (el, ...kids) => el.replaceChildren(...kids.flat(Infinity).filter((k) => k !== null && k !== undefined && k !== false));
 const num = (n, cls = '') => h('span', { class: `num ${cls}` }, String(n));
-/** @param {number} ms */
 const sec = (ms) => (ms / 1000).toFixed(Math.abs(ms) < 10000 ? 3 : Math.abs(ms) < 100000 ? 2 : 1).replace('.', ',');
-const rel = (ms) => `+${sec(Math.max(0, ms))}\u00a0с`;
+const rel = (ms) => `+${sec(Math.max(0, ms))} с`;
 const sec1 = (ms) => (ms / 1000).toFixed(1).replace('.', ',');
 const plural = (n, one, few, many) => { const a = Math.abs(n) % 100, b = a % 10; return a > 10 && a < 20 ? many : b === 1 ? one : b >= 2 && b <= 4 ? few : many; };
 const pts = (n) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${Math.abs(n)} ${plural(n, 'балл', 'балла', 'баллов')}`;
+const qrBox = (text, cls = 'qr') => h('div', { class: cls, html: qrSvg(text, '#0B2A3D', '#FFFFFF', 2), role: 'img', 'aria-label': `QR-код: ${text}` });
 
 let toastTimer = /** @type {any} */ (null);
 /** @param {string} text */
@@ -53,10 +61,10 @@ function toast(text) {
   const t = h('div', { class: 'toast', role: 'status' }, text);
   document.body.append(t);
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.remove(), 3200);
+  toastTimer = setTimeout(() => t.remove(), 3400);
 }
 
-/** Окно поверх. Возвращает функцию закрытия. @param {(close: () => void) => Node[]} build */
+/** Окно поверх. @param {(close: () => void) => Node[]} build */
 function sheet(build) {
   const wrap = h('div', { class: 'sheet-wrap', onclick: (e) => { if (e.target === wrap) close(); } });
   const close = () => wrap.remove();
@@ -71,9 +79,7 @@ function confirmSheet(title, text, yes) {
   return new Promise((resolve) => {
     sheet((close) => [
       h('h2', null, title), h('p', null, text),
-      h('div', { class: 'row' },
-        bv('sun', yes, () => { close(); resolve(true); }),
-        bv('', 'Отмена', () => { close(); resolve(false); })),
+      h('div', { class: 'row' }, bv('sun', yes, () => { close(); resolve(true); }), bv('', 'Отмена', () => { close(); resolve(false); })),
     ]);
   });
 }
@@ -116,9 +122,8 @@ async function initTelegram() {
   if (!tg) return;
   try {
     tg.ready(); tg.expand();
-    tg.setHeaderColor?.('#4BA1D2'); tg.setBackgroundColor?.('#4BA1D2'); tg.setBottomBarColor?.('#4BA1D2');
-    // свайп вниз по кнопке не должен сворачивать приложение
-    tg.disableVerticalSwipes?.();
+    tg.setHeaderColor?.('#009FE3'); tg.setBackgroundColor?.('#009FE3'); tg.setBottomBarColor?.('#009FE3');
+    tg.disableVerticalSwipes?.(); // свайп вниз по кнопке не должен сворачивать приложение
   } catch { /* старый Telegram */ }
 }
 
@@ -140,7 +145,7 @@ async function keepAwake() {
 }
 
 function appInfo() {
-  const p = tg ? `tg ${tg.platform ?? ''} ${tg.version ?? ''}` : 'web';
+  const p = tg ? `tg ${tg.platform ?? ''} ${tg.version ?? ''}` : DEMO ? 'demo' : 'web';
   const ua = navigator.userAgent;
   const os = /iPhone|iPad/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : /Windows/.test(ua) ? 'Windows' : /Mac/.test(ua) ? 'Mac' : '';
   return `${p} ${os}`.trim().slice(0, 80);
@@ -148,20 +153,22 @@ function appInfo() {
 
 // ───────────────────────── общий каркас ─────────────────────────
 
-const api = new Api(CFG.url || location.origin, CFG.key || '');
+/** @type {any} */ let api = null;
 
 /** @param {string} title @param {string} text */
 function fatal(title, text) {
   root.className = '';
-  root.replaceChildren(h('div', { class: 'card-form' }, h('h1', null, title), h('p', null, text)));
+  fill(root, h('div', { class: 'card-form' }, h('h1', null, title), h('p', null, text)));
 }
 
-/** Логотип на белой плашке: на голубом фоне голубой круг с «1» иначе теряется. */
-const logoPlate = (cls = '') => h('span', { class: `plate ${cls}` }, h('span', null, h('img', { class: 'logo', src: 'logo.svg', alt: 'Ты — лидер', width: 162, height: 26 })));
-
-function topBar(extra) {
+/** @param {Node|null} [extra] @param {boolean} [peaks] */
+function topBar(extra = null, peaks = true) {
   const net = h('span', { class: 'net', title: 'Связь с сервером' }, h('i'), h('span', null, '…'));
-  return { el: h('div', { class: 'top' }, logoPlate(), extra ?? null, net), net };
+  const el = h('div', { class: 'top' },
+    peaks ? h('div', { class: 'peaks', 'aria-hidden': 'true' }) : null,
+    h('span', { class: 'mark' }, h('img', { src: 'mark.svg', alt: '', width: 30, height: 30 }), 'Вечерка ШПА'),
+    extra, net);
+  return { el, net };
 }
 /** @param {HTMLElement} net @param {boolean} online @param {string} text */
 function setNet(net, online, text) {
@@ -169,10 +176,16 @@ function setNet(net, online, text) {
   const s = /** @type {HTMLElement} */ (net.lastChild);
   if (s.textContent !== text) s.textContent = text;
 }
+const clipName = (k, teams) => k.title || (teams.find((t) => t.id === k.team)?.name ?? 'Клип');
+const clipSub = (k, teams) => (k.title && k.team ? teams.find((t) => t.id === k.team)?.name ?? '' : '');
 
-// ───────────────────────── телефон команды ─────────────────────────
+// ───────────────────────── телефон участника ─────────────────────────
 
 async function teamAuth() {
+  if (DEMO) {
+    const j = await api.rpc('bz_register_web', { p_device: deviceKey(), p_name: 'Вы' });
+    return /** @type {string} */ (j.token);
+  }
   // 1) Telegram: подпись initData проверяет функция knopka
   if (tg?.initData) {
     try {
@@ -180,15 +193,14 @@ async function teamAuth() {
       const j = await r.json().catch(() => null);
       if (j?.token) return /** @type {string} */ (j.token);
     } catch { /* ниже — запасной путь */ }
-    // функция недоступна — входим как «браузер» с именем из Telegram (ведущий увидит значок 🌐)
     const u = tg.initDataUnsafe?.user;
-    const name = [u?.first_name, u?.last_name].filter(Boolean).join(' ') || 'Капитан';
+    const name = [u?.first_name, u?.last_name].filter(Boolean).join(' ') || 'Участник';
     const j = await api.rpc('bz_register_web', { p_device: deviceKey(), p_name: name }).catch(() => null);
     if (j?.token) return /** @type {string} */ (j.token);
   }
   // 2) Браузер: спрашиваем имя
   return await new Promise((resolve) => {
-    root.className = '';
+    root.className = 'team-app';
     const inp = /** @type {HTMLInputElement} */ (h('input', { autocomplete: 'name', maxlength: 40, placeholder: 'Например, Аня Смирнова', enterkeyhint: 'go' }));
     const err = h('p', { class: 'err' });
     const go = async () => {
@@ -197,180 +209,306 @@ async function teamAuth() {
       if (j?.token) resolve(j.token); else err.textContent = j?.error || 'Не получилось войти';
     };
     inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
-    root.replaceChildren(
-      topBar().el,
+    fill(root, topBar().el,
       h('div', { class: 'card-form' },
-        h('h1', null, 'Кнопка для ответов'),
-        h('p', null, 'Удобнее открыть через Telegram-бота — там вход без имени. Если играешь из браузера, напиши, как тебя зовут: ведущий увидит это имя рядом с командой.'),
-        h('label', { class: 'field' }, h('span', null, 'Имя и фамилия'), inp),
-        err,
+        h('h1', null, 'Вечерка ШПА'),
+        h('p', null, BOT ? 'Удобнее открыть через Telegram-бота — там вход в одно касание, и только оттуда можно голосовать за клипы.' : 'Напиши, как тебя зовут: ведущий увидит это имя в списке твоего профбюро.'),
+        h('label', { class: 'field' }, h('span', null, 'Имя и фамилия'), inp), err,
         bv('sun big wide', 'Войти', go),
-        h('p', { class: 'small muted', style: 'margin:14px 0 0' }, 'Бот: ', h('a', { href: JOIN_URL }, `@${BOT}`))),
-    );
+        BOT ? h('p', { class: 'small muted', style: 'margin:14px 0 0' }, 'Бот: ', h('a', { href: JOIN_URL }, `@${BOT}`)) : null));
     inp.focus();
   });
 }
 
 async function teamMode() {
   let token = LS.get('knopka.token');
-  if (!token) {
-    token = await teamAuth();
-    LS.set('knopka.token', token);
-  }
+  if (!token) { token = await teamAuth(); LS.set('knopka.token', token); }
   root.className = 'team-app';
   const clock = new Clock();
   /** @type {TeamLink} */ let link;
+  let dead = false;
+  let tab = 'button';
+  let lastVoteStatus = 'off';
+  let earlyUntil = 0;
+  let sigPick = '', sigHome = '', sigVote = '';
 
-  // ── разметка: строится один раз, дальше меняются только тексты и классы ──
+  // ── разметка: строится один раз, дальше меняются тексты и классы ──
   const top = topBar();
   const tilesGrid = h('div', { class: 'grid' });
-  const pick = h('section', { class: 'pick' },
-    h('h1', { class: 'outlined' }, 'Выбери команду'),
-    h('p', { class: 'lead' }, 'От каждой команды отмечается один человек — тот, кто будет нажимать кнопку, когда у команды готов ответ.'),
+  const pick = h('section', { class: 'pick hidden' },
+    h('h1', null, 'Из какого ты профбюро?'),
+    h('p', { class: 'lead' }, 'Выбирается один раз — потом сменить сможет только ведущий. За клип своего профбюро голосовать будет нельзя.'),
     tilesGrid,
     h('div', { class: 'foot' }, h('button', { class: 'link', type: 'button', onclick: () => switchToHost() }, 'Я ведущий')));
-  const tName = h('div', { class: 'name' });
+
   const tNum = num('–', 'sun lg');
+  const tName = h('div', { class: 'name' });
   const tScore = h('b', null, '0');
   const tScoreWord = h('span', null, 'баллов');
+  const scoreBox = h('div', { class: 'score' }, tScore, tScoreWord);
+  const segBtn = h('button', { type: 'button', 'aria-pressed': 'true', onclick: () => setTab('button') }, 'Кнопка');
+  const segVote = h('button', { type: 'button', 'aria-pressed': 'false', onclick: () => setTab('vote') }, 'Голосование');
+  const seg = h('div', { class: 'seg hidden', role: 'tablist' }, segBtn, segVote);
+
   const btnLbl = h('span', { class: 'lbl' }, '');
   const btnSub = h('span', { class: 'sub' }, '');
   const btn = h('button', { class: 'big-btn wait', type: 'button', 'aria-live': 'polite' }, h('span', null, btnLbl, btnSub));
+  const stage = h('div', { class: 'stage' }, btn);
+  const presser = h('div', { class: 'card presser hidden' });
   const stMain = h('div', { class: 'main' });
   const stHint = h('div', { class: 'hint' });
+  const status = h('div', { class: 'status' }, stMain, stHint);
   const orderList = h('ol');
   const orderTitle = h('h3');
-  const order = h('div', { class: 'order hidden' }, orderTitle, orderList);
-  const leaveBtn = h('button', { class: 'link', type: 'button', onclick: () => leave() }, 'Сменить команду');
-  const game = h('section', { class: 'hidden', style: 'display:flex;flex-direction:column;flex:1' },
-    h('div', { class: 'team-head' }, tNum, tName, h('div', { class: 'score' }, tScore, tScoreWord)),
-    h('div', { class: 'stage' }, btn),
-    h('div', { class: 'status' }, stMain, stHint),
-    order,
-    h('div', { class: 'foot' }, leaveBtn));
-  root.replaceChildren(top.el, pick, game);
+  const order = h('div', { class: 'card order hidden' }, orderTitle, orderList);
+  const footBtn = h('div', { class: 'foot' });
+  const btnView = h('div', { style: 'display:flex;flex-direction:column;flex:1' }, stage, presser, status, order, footBtn);
+  const voteView = h('section', { class: 'vote hidden' });
+  const home = h('section', { class: 'hidden', style: 'display:flex;flex-direction:column;flex:1' },
+    h('div', { class: 'team-head' }, tNum, tName, scoreBox), seg, btnView, voteView);
+  fill(root, top.el, pick, home);
 
-  /** @type {{round:number, ms:number, status:string}|null} */ let lastPress = null;
-  let dead = false; // после «открыто на другом устройстве» старые обработчики молчат
-  let earlyUntil = 0;
-  let lastSig = '';
-
-  const myTeam = () => link.state?.teams?.find((t) => t.mine) ?? null;
+  const S = () => link.state;
+  const me = () => link.state?.me;
+  const myTeam = () => link.state?.teams?.find((t) => t.id === me()?.team) ?? null;
   const teamName = (id) => link.state?.teams?.find((t) => t.id === id)?.name ?? '—';
 
-  function renderTiles() {
-    const s = link.state;
-    const sig = JSON.stringify([s?.teams?.map((t) => [t.id, t.name, t.claimed, t.mine]), s?.game?.locked]);
-    if (sig === lastSig) return;
-    lastSig = sig;
-    tilesGrid.replaceChildren(...(s?.teams ?? []).map((t) => {
-      const taken = t.claimed && !t.mine;
-      return h('button', { class: `tile${taken ? ' taken' : ''}${t.mine ? ' mine' : ''}`, type: 'button', onclick: () => choose(t) },
-        num(t.num), h('span', null, h('b', null, t.name), h('small', null, t.mine ? 'это вы' : taken ? 'занята' : 'свободна')));
-    }));
+  /** @param {string} t */
+  function setTab(t) {
+    tab = t;
+    segBtn.setAttribute('aria-pressed', String(t === 'button'));
+    segVote.setAttribute('aria-pressed', String(t === 'vote'));
+    btnView.classList.toggle('hidden', t !== 'button');
+    voteView.classList.toggle('hidden', t !== 'vote');
+    segVote.querySelector('.dot-new')?.remove();
   }
 
+  // ── выбор профбюро ──
+  function renderPick() {
+    const s = S();
+    const sig = JSON.stringify(s.teams.map((t) => [t.id, t.name, t.members]));
+    if (sig === sigPick) return;
+    sigPick = sig;
+    fill(tilesGrid, ...s.teams.map((t) => h('button', { class: 'tile', type: 'button', onclick: () => join(t) },
+      num(t.num), h('span', null, h('b', null, t.name), h('small', null, t.members ? `${t.members} ${plural(t.members, 'человек', 'человека', 'человек')}` : 'пока никого')))));
+  }
   /** @param {any} t */
-  async function choose(t) {
-    if (t.claimed && !t.mine) { toast(`За «${t.name}» уже играют. Если это ваша команда — попросите ведущего освободить её.`); return; }
-    const ok = await confirmSheet(`Команда «${t.name}»`, 'Ты отвечаешь за кнопку этой команды: нажимаешь, когда у команды готов ответ. Других участников команды отмечать не нужно.', 'Да, играю');
+  async function join(t) {
+    const ok = await confirmSheet(`Ты из профбюро «${t.name}»?`, 'Сменить профбюро потом сможет только ведущий. За клип своего профбюро голосовать будет нельзя.', 'Да, это моё профбюро');
     if (!ok) return;
-    const r = await api.rpc('bz_claim', { p_token: token, p_team: t.id }).catch((e) => ({ error: e.message }));
+    const r = await api.rpc('bz_join', { p_token: token, p_team: t.id }).catch((e) => ({ error: e.message }));
     if (r?.code === 'auth') return authLost();
     if (!r?.ok) { toast(r?.error || 'Не получилось'); return; }
     haptic('ok');
-    try { tg?.enableClosingConfirmation?.(); } catch { /* нет */ }
     link.kick();
   }
 
-  async function leave() {
-    const t = myTeam();
-    if (!(await confirmSheet('Сменить команду?', `Кнопка команды «${t?.name ?? ''}» освободится, и её сможет взять другой человек.`, 'Сменить'))) return;
+  // ── кто жмёт ──
+  function chooseMate() {
+    const mates = me()?.mates ?? [];
+    sheet((close) => [
+      h('h2', null, 'Кто жмёт кнопку?'),
+      h('p', null, 'Один человек от профбюро нажимает, когда у команды готов ответ. Выбери его из тех, кто уже открыл бота.'),
+      ...mates.map((m) => h('button', { class: `pickrow${m.captain ? ' on' : ''}`, type: 'button', onclick: async () => {
+        const r = m.id === me()?.id
+          ? await api.rpc('bz_claim', { p_token: token, p_team: me().team }).catch((e) => ({ error: e.message }))
+          : await api.rpc('bz_assign', { p_token: token, p_client: m.id }).catch((e) => ({ error: e.message }));
+        if (!r?.ok) { toast(r?.error || 'Не получилось'); return; }
+        close(); haptic('ok'); link.kick();
+        toast(m.id === me()?.id ? 'Кнопку жмёшь ты' : `Кнопку жмёт ${m.name}`);
+      } }, h('span', { style: 'flex:1' }, m.name, m.id === me()?.id ? ' (это ты)' : ''), m.captain ? 'жмёт сейчас' : '')),
+      mates.length < 2 ? h('p', { class: 'muted small' }, 'Остальные из профбюро появятся здесь, когда откроют бота.') : null,
+      h('div', { class: 'row', style: 'margin-top:6px' }, bv('', 'Закрыть', close)),
+    ]);
+  }
+  async function release() {
+    if (!(await confirmSheet('Перестать жать кнопку?', 'Кнопка освободится — её сможет взять кто-то из твоего профбюро.', 'Освободить'))) return;
     const r = await api.rpc('bz_unclaim', { p_token: token }).catch((e) => ({ error: e.message }));
     if (!r?.ok) { toast(r?.error || 'Не получилось'); return; }
-    try { tg?.disableClosingConfirmation?.(); } catch { /* нет */ }
     link.kick();
   }
+  async function changeTeam() {
+    const s = S();
+    sheet((close) => [
+      h('h2', null, 'Сменить профбюро'),
+      h('p', null, 'Можно в первые 10 минут после выбора, пока ты не голосовал. Потом — только через ведущего.'),
+      ...s.teams.map((t) => h('button', { class: `pickrow${t.id === me()?.team ? ' on' : ''}`, type: 'button', onclick: async () => {
+        const r = await api.rpc('bz_join', { p_token: token, p_team: t.id }).catch((e) => ({ error: e.message }));
+        if (!r?.ok) { toast(r?.error || 'Не получилось'); return; }
+        close(); link.kick();
+      } }, num(t.num), h('span', null, t.name))),
+      h('div', { class: 'row' }, bv('', 'Отмена', close)),
+    ]);
+  }
 
-  function renderGame() {
-    const s = link.state, t = myTeam();
-    if (!t) return;
-    if (tName.textContent !== t.name) tName.textContent = t.name;
-    if (tNum.textContent !== String(t.num)) tNum.textContent = String(t.num);
-    if (tScore.textContent !== String(t.score)) { tScore.textContent = String(t.score); tScoreWord.textContent = plural(t.score, 'балл', 'балла', 'баллов'); }
-    leaveBtn.classList.toggle('hidden', !!s.game?.locked);
+  function renderHome() {
+    const s = S(), m = me(), t = myTeam();
+    const g = s.vote;
+    // голосование открылось — сразу показываем его
+    if (g.status !== lastVoteStatus) {
+      if ((g.status === 'open' || g.status === 'shown') && lastVoteStatus !== g.status) {
+        setTab('vote');
+        if (tab !== 'vote') segVote.append(h('span', { class: 'dot-new' }));
+      }
+      if (g.status === 'off') setTab('button');
+      lastVoteStatus = g.status;
+    }
+    seg.classList.toggle('hidden', g.status === 'off');
+
+    const sig = JSON.stringify([m.team, m.team_src, m.captain, m.can_change, t?.claimed, t?.captain_name, t?.score, s.game.locked, (m.mates ?? []).length]);
+    if (sig !== sigHome) {
+      sigHome = sig;
+      if (t) {
+        tNum.textContent = String(t.num);
+        fill(tName, t.name, m.team_src === 'roster' ? h('small', null, 'профбюро из списка выезда') : m.team_src === 'host' ? h('small', null, 'профбюро назначил ведущий') : null);
+        tScore.textContent = String(t.score); tScoreWord.textContent = plural(t.score, 'балл', 'балла', 'баллов');
+        scoreBox.classList.remove('hidden'); tNum.classList.remove('hidden');
+      } else {
+        fill(tName, 'Профком', h('small', null, 'организатор: голосуешь за любой клип'));
+        scoreBox.classList.add('hidden'); tNum.classList.add('hidden');
+      }
+      stage.classList.toggle('hidden', !m.captain);
+      presser.classList.toggle('hidden', !!m.captain);
+      if (!m.captain) {
+        if (!t) fill(presser, h('div', null, 'Кнопку жмут команды — у организаторов её нет.'));
+        else if (t.claimed) {
+          fill(presser, h('div', { class: 'muted' }, `Кнопку за «${t.name}» жмёт`), h('div', { class: 'who' }, t.captain_name ?? '—'),
+            h('div', { class: 'small muted' }, 'Передать кнопку может только он или ведущий.'));
+        } else {
+          fill(presser, h('div', { class: 'muted' }, `За «${t.name}» ещё никто не жмёт`), h('div', { class: 'who' }, 'Кто будет нажимать?'),
+            h('div', { class: 'row' },
+              bv('sun', 'Буду жать я', async () => {
+                const r = await api.rpc('bz_claim', { p_token: token, p_team: t.id }).catch((e) => ({ error: e.message }));
+                if (!r?.ok) { toast(r?.error || 'Не получилось'); return; }
+                haptic('ok'); link.kick();
+              }),
+              bv('', 'Выбрать из профбюро', chooseMate)));
+        }
+      }
+      fill(footBtn, 
+        m.captain && !s.game.locked ? h('button', { class: 'link', type: 'button', onclick: chooseMate }, 'Передать кнопку') : null,
+        m.captain && !s.game.locked ? h('button', { class: 'link', type: 'button', onclick: release }, 'Не жать') : null,
+        m.can_change ? h('button', { class: 'link', type: 'button', onclick: changeTeam }, 'Сменить профбюро') : null);
+      try { if (m.captain) tg?.enableClosingConfirmation?.(); else tg?.disableClosingConfirmation?.(); } catch { /* старый Telegram */ }
+    }
+
     const r = s.round, pr = r?.presses ?? [];
     order.classList.toggle('hidden', !pr.length);
     if (pr.length) {
       orderTitle.textContent = `Вопрос ${r.n}: кто нажал`;
-      // на телефоне — первые пять и своя строка, полный список у ведущего и на экране
-      const shown = pr.filter((p) => p.place <= 5 || p.team === t.id);
-      orderList.replaceChildren(...shown.map((p) => h('li', { class: p.team === t.id ? 'me' : '' },
+      const shown = pr.filter((p) => p.place <= 5 || p.team === m.team);
+      fill(orderList, ...shown.map((p) => h('li', { class: p.team === m.team ? 'me' : '' },
         num(p.place, p.place === 1 ? 'sun' : ''), h('span', null, teamName(p.team)),
         p.tie || p.unsure ? h('span', { class: 'wait', title: 'Почти одновременно — решит ведущий' }, '≈') : null,
         p.verdict ? h('span', { class: p.verdict === 'ok' ? 'v-ok' : 'v-bad' }, p.verdict === 'ok' ? '✓' : '✗') : null,
         h('span', { class: 't' }, rel(p.rel_ms)), p.confirmed ? null : h('span', { class: 'wait' }, '…'))),
         ...(pr.length > shown.length ? [h('li', { class: 'wait' }, `и ещё ${pr.length - shown.length}`)] : []));
     }
+    renderVote();
   }
 
-  /** Своё нажатие в текущем вопросе: ещё в пути, принято сервером или видно в списке. */
-  function myPress() {
-    const r = link.round, t = myTeam();
-    if (!r || !t) return null;
-    const inList = r.presses?.find((p) => p.team === t.id);
+  // ── голосование ──
+  function renderVote() {
+    const s = S(), m = me(), g = s.vote;
+    const sig = JSON.stringify([g, m.vote, m.team, s.clips, s.teams.map((t) => t.name)]);
+    if (sig === sigVote) return;
+    sigVote = sig;
+    const teams = s.teams;
+    const lead = g.status === 'open' ? 'Выбери один клип. За клип своего профбюро голосовать нельзя. Передумать можно, пока голосование открыто.'
+      : g.status === 'closed' ? 'Голосование закрыто — ведущий скоро покажет итоги.'
+      : g.status === 'shown' ? `Итоги: ${s.vote.total} ${plural(s.vote.total, 'голос', 'голоса', 'голосов')}` : 'Голосование ещё не началось.';
+    const chosen = s.clips.find((k) => k.id === m.vote);
+    let list;
+    if (g.status === 'shown') {
+      const max = Math.max(1, ...s.clips.map((k) => k.votes ?? 0));
+      const sorted = s.clips.slice().sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0) || a.num - b.num);
+      const top = sorted[0]?.votes ?? 0;
+      list = sorted.map((k) => h('div', { class: `clip result${(k.votes ?? 0) === top && top > 0 ? ' win' : ''}` },
+        h('span', { class: 'bar', style: `width:${Math.round(((k.votes ?? 0) / max) * 100)}%` }),
+        num(k.num), h('span', null, h('b', null, clipName(k, teams)), h('small', null, [clipSub(k, teams), k.id === m.vote ? 'твой голос' : '', k.team && k.team === m.team ? 'твоё профбюро' : ''].filter(Boolean).join(' · '))),
+        h('span', { class: 'cnt' }, String(k.votes ?? 0))));
+    } else {
+      list = s.clips.map((k) => {
+        const own = !!k.team && k.team === m.team;
+        return h('button', { class: `clip${k.id === m.vote ? ' chosen' : ''}${own ? ' own' : ''}`, type: 'button',
+          disabled: own || g.status !== 'open' ? true : null, onclick: () => vote(k) },
+          num(k.num), h('span', null, h('b', null, clipName(k, teams)), clipSub(k, teams) ? h('small', null, clipSub(k, teams)) : null),
+          h('span', { class: 'mark-v' }, own ? 'твоё ПБ' : k.id === m.vote ? '✓ твой голос' : ''));
+      });
+    }
+    fill(voteView, 
+      h('h2', null, g.title), h('p', { class: 'lead' }, lead),
+      h('div', { class: 'clips' }, list),
+      g.status === 'open' || g.status === 'closed'
+        ? h('p', { class: 'lead', style: 'margin-top:14px' }, chosen ? `Твой голос: «${clipName(chosen, teams)}»` : g.status === 'open' ? 'Ты ещё не голосовал.' : 'Ты не голосовал.') : null,
+      chosen && g.status === 'open' ? h('div', { class: 'foot' }, h('button', { class: 'link', type: 'button', onclick: () => vote(null) }, 'Забрать голос')) : null);
+  }
+  /** @param {any} k */
+  async function vote(k) {
+    const r = await api.rpc('bz_vote', { p_token: token, p_clip: k ? k.id : null }).catch((e) => ({ error: e.message }));
+    if (r?.code === 'auth') return authLost();
+    if (!r?.ok) { toast(r?.error || 'Не получилось'); haptic('bad'); return; }
+    haptic('ok');
+    toast(k ? `Голос за «${clipName(k, S().teams)}» принят` : 'Голос забран');
+    link.apply(r, performance.now());
+  }
+
+  /** Своё нажатие (если жмёшь ты) или нажатие своей команды (если смотришь). */
+  function teamPress() {
+    const r = link.round, m = me();
+    if (!r || !m?.team) return null;
+    const inList = r.presses?.find((p) => p.team === m.team);
     if (inList) return { ms: inList.press_ms, status: 'ok', entry: inList };
-    if (link.pending?.round === r.id) return { ms: link.pending.ms, status: 'sending', entry: null };
-    const res = link.results.get(r.id);
+    if (m.captain && link.pending?.round === r.id) return { ms: link.pending.ms, status: 'sending', entry: null };
+    const res = m.captain ? link.results.get(r.id) : null;
     if (res) return { ms: res.press_ms, status: res.code, entry: null };
     return null;
   }
 
-  /** Кнопка и подписи — каждый кадр (обратный отсчёт и «ЖМИ» загораются по часам сервера). */
+  /** Кнопка и подписи — каждый кадр (обратный отсчёт и «Жми» загораются по часам сервера). */
   function paint() {
-    const r = link?.round;
+    const r = link?.round, m = me();
+    if (!m) return;
+    const cap = !!m.captain;
     const now = clock.ready ? clock.server() : NaN;
     const ph = !clock.ready ? 'nosync' : roundPhase(r, now);
-    const mp = myPress();
+    const mp = teamPress();
+    const capName = myTeam()?.captain_name;
     let cls = 'wait', lbl = '', sub = '', main = '', hint = '', placeCls = false;
-    if (performance.now() < earlyUntil) {
-      cls = 'early'; lbl = 'Рано!'; sub = 'старта ещё не было';
-      main = 'Подожди старта'; hint = 'Нажатие до старта не считается';
+    if (cap && performance.now() < earlyUntil) {
+      cls = 'early'; lbl = 'Рано'; sub = 'старта ещё не было'; main = 'Подожди старта'; hint = 'Нажатие до старта не считается';
     } else if (mp && r) {
-      cls = 'pressed';
-      lbl = rel(mp.ms - r.opens_ms);
+      cls = 'pressed'; lbl = rel(mp.ms - r.opens_ms);
       const e = mp.entry;
       if (mp.status === 'sending') {
-        sub = 'отправляем…';
-        main = 'Нажато!';
+        sub = 'отправляем…'; main = 'Нажато!';
         hint = link.online ? 'Время касания записано — отправляем' : 'Нет связи. Время касания сохранено и уйдёт само, не закрывай приложение';
       } else if (mp.status !== 'ok') {
-        cls = 'wait'; lbl = 'Не засчитано'; sub = '';
-        main = 'Нажатие не засчитано';
+        cls = 'wait'; lbl = 'Не засчитано'; sub = ''; main = 'Нажатие не засчитано';
         hint = mp.status === 'closed' || mp.status === 'timeout' ? 'Приём ответов уже был закрыт' : mp.status === 'void' ? 'Вопрос отменён' : 'Сервер не принял нажатие';
       } else if (e && e.confirmed) {
         sub = `${e.place}-е место`;
-        main = e.place === 1 ? 'Вы первые!' : `${e.place}-е место`;
+        main = e.place === 1 ? (cap ? 'Вы первые!' : 'Наша команда первая!') : `${e.place}-е место`;
         placeCls = true;
         const prev = r.presses.find((p) => p.place === e.place - 1);
         hint = e.verdict === 'ok' ? `Верно! ${pts(e.points)}` : e.verdict === 'bad' ? `Неверно: ${pts(e.points)}`
           : (e.tie || e.unsure) && prev ? `Почти одновременно с «${teamName(prev.team)}» — решит ведущий`
           : prev ? `На ${sec(e.gap_ms)} с позже «${teamName(prev.team)}»` : 'Готовьте ответ';
+        if (!cap) main = `${capName ?? 'Наша команда'}: ${e.place}-е место`;
       } else {
-        sub = 'принято';
-        main = 'Нажато!';
-        hint = 'Сверяем время остальных команд…';
+        sub = 'принято'; main = cap ? 'Нажато!' : `${capName ?? 'Команда'} нажал${capName ? '(а)' : 'а'} на ${rel(mp.ms - r.opens_ms)}`; hint = 'Сверяем время остальных команд…';
       }
     } else {
       switch (ph) {
         case 'nosync': lbl = 'Подключаемся'; main = 'Сверяем часы с сервером'; hint = 'Пара секунд'; break;
-        case 'idle': lbl = 'Ждём вопрос'; main = 'Ждём вопрос'; hint = 'Когда ведущий запустит вопрос, кнопка станет жёлтой. Не блокируй экран'; break;
-        case 'countdown': cls = 'count'; lbl = String(Math.max(1, Math.ceil((r.opens_ms - now) / 1000))); main = 'Приготовьтесь'; hint = 'Нажатие до старта не считается'; break;
+        case 'idle': lbl = 'Ждём вопрос'; main = 'Ждём вопрос'; hint = cap ? 'Когда ведущий запустит вопрос, кнопка засветится. Не блокируй экран' : 'Ведущий ещё не запустил вопрос'; break;
+        case 'countdown': cls = 'count'; lbl = String(Math.max(1, Math.ceil((r.opens_ms - now) / 1000))); main = 'Приготовьтесь'; hint = cap ? 'Нажатие до старта не считается' : `Старт через ${Math.max(1, Math.ceil((r.opens_ms - now) / 1000))}`; break;
         case 'open':
           cls = 'go'; lbl = 'Жми';
           sub = r.closes_ms ? `осталось ${Math.max(0, Math.ceil((r.closes_ms - now) / 1000))} с` : '';
-          main = 'Жми, когда готов ответ';
+          main = cap ? 'Жми, когда готов ответ' : `Вопрос ${r.n} идёт`;
           hint = r.closes_ms ? `На ответ ${Math.round((r.closes_ms - r.opens_ms) / 1000)} с` : `Идёт ${sec1(now - r.opens_ms)} с`;
+          if (!cap && capName) hint += ` · жмёт ${capName}`;
           break;
         case 'closed': {
           lbl = 'Приём закрыт'; main = 'Приём закрыт';
@@ -381,18 +519,19 @@ async function teamMode() {
         case 'void': lbl = 'Вопрос отменён'; main = 'Вопрос отменён'; hint = 'Ведущий переиграет его'; break;
       }
     }
-    const want = `big-btn ${cls}`;
-    if (btn.className !== want) btn.className = want;
-    if (btnLbl.textContent !== lbl) btnLbl.textContent = lbl;
-    if (btnSub.textContent !== sub) btnSub.textContent = sub;
+    if (cap) {
+      const want = `big-btn ${cls}`;
+      if (btn.className !== want) btn.className = want;
+      if (btnLbl.textContent !== lbl) btnLbl.textContent = lbl;
+      if (btnSub.textContent !== sub) btnSub.textContent = sub;
+    }
     if (stMain.textContent !== main) stMain.textContent = main;
     stMain.classList.toggle('place', placeCls);
     if (stHint.textContent !== hint) stHint.textContent = hint;
-    const netText = !link?.online ? 'нет связи' : Number.isFinite(clock.lastRtt) ? `${Math.round(clock.lastRtt)} мс` : '…';
-    setNet(top.net, link?.online ?? true, netText);
+    setNet(top.net, link?.online ?? true, !link?.online ? 'нет связи' : Number.isFinite(clock.lastRtt) ? `${Math.round(clock.lastRtt)} мс` : '…');
   }
 
-  function frame() { if (dead) return; if (link?.state?.me?.team) paint(); requestAnimationFrame(frame); }
+  function frame() { if (dead) return; if (link?.state?.me && (link.state.me.team || link.state.me.team_src === 'roster')) paint(); requestAnimationFrame(frame); }
 
   /** Касание: время берём из события (момент касания), а не из обработчика. @param {Event} e */
   function onPress(e) {
@@ -413,46 +552,44 @@ async function teamMode() {
   btn.addEventListener('contextmenu', (e) => e.preventDefault());
 
   function onState() {
-    const hasTeam = !!link.state?.me?.team;
-    pick.classList.toggle('hidden', hasTeam);
-    game.classList.toggle('hidden', !hasTeam);
-    // случайный свайп или «назад» не должны закрыть кнопку посреди игры
-    try { if (hasTeam) tg?.enableClosingConfirmation?.(); else tg?.disableClosingConfirmation?.(); } catch { /* старый Telegram */ }
-    if (hasTeam) renderGame(); else { renderTiles(); setNet(top.net, link.online, link.online ? `${Math.round(clock.lastRtt || 0)} мс` : 'нет связи'); }
+    const m = me();
+    const inTeam = !!m && (m.team != null || m.team_src === 'roster');
+    pick.classList.toggle('hidden', inTeam);
+    home.classList.toggle('hidden', !inTeam);
+    if (inTeam) renderHome(); else { renderPick(); setNet(top.net, link.online, link.online ? `${Math.round(clock.lastRtt || 0)} мс` : 'нет связи'); }
   }
 
   function authLost() {
     dead = true;
     link?.stop();
     LS.set('knopka.token', null);
-    root.replaceChildren(topBar().el, h('div', { class: 'card-form' },
-      h('h1', null, 'Кнопка открыта на другом устройстве'),
-      h('p', null, 'Нажимать можно только с одного телефона. Если хочешь играть с этого — войди здесь, и кнопка на другом устройстве отключится.'),
-      bv('sun big wide', 'Играть на этом устройстве', () => { root.replaceChildren(); teamMode(); })));
+    fill(root, topBar().el, h('div', { class: 'card-form' },
+      h('h1', null, 'Бот открыт на другом устройстве'),
+      h('p', null, 'Пользоваться можно с одного телефона. Если хочешь с этого — войди здесь, и на другом устройстве всё отключится.'),
+      bv('sun big wide', 'Продолжить на этом устройстве', () => { fill(root); teamMode(); })));
   }
 
   link = new TeamLink({
     api, clock, token, app: appInfo(),
     store: { get: (k) => LS.get(k), set: (k, v) => LS.set(k, v) },
     onState, onAuthLost: authLost,
-    onPress: (p) => { lastPress = p; if (p.status === 'ok') haptic('ok'); else if (p.status !== 'sending') haptic('bad'); },
+    onPress: (p) => { if (p.status === 'ok') haptic('ok'); else if (p.status !== 'sending') haptic('bad'); },
     onNet: () => paint(),
   });
   link.start();
   requestAnimationFrame(frame);
   document.addEventListener('visibilitychange', () => {
     if (dead) return;
-    if (document.visibilityState === 'visible') { link.start(); keepAwake(); } else link.stop();
+    if (document.visibilityState === 'visible') { link.start(); keepAwake(); } else if (!DEMO) link.stop();
   });
   addEventListener('pageshow', () => { if (!dead) link.start(); });
-  void lastPress;
 }
 
 // ───────────────────────── ведущий ─────────────────────────
 
 function switchToHost() {
   LS.set('knopka.mode', 'host');
-  root.replaceChildren();
+  fill(root);
   hostMode();
 }
 
@@ -460,7 +597,7 @@ function switchToHost() {
 function hostLogin() {
   return new Promise((resolve) => {
     root.className = 'host';
-    const inp = /** @type {HTMLInputElement} */ (h('input', { autocomplete: 'off', autocapitalize: 'characters', maxlength: 60, enterkeyhint: 'go' }));
+    const inp = /** @type {HTMLInputElement} */ (h('input', { autocomplete: 'off', autocapitalize: 'characters', maxlength: 60, enterkeyhint: 'go', value: DEMO ? 'ДЕМО' : null }));
     const err = h('p', { class: 'err' });
     const go = async () => {
       err.textContent = '';
@@ -468,37 +605,36 @@ function hostLogin() {
       if (r?.token) { LS.set('knopka.host', r.token); resolve(r.token); } else err.textContent = r?.error || 'Не получилось';
     };
     inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
-    root.replaceChildren(topBar().el, h('div', { class: 'host-wrap' }, h('div', { class: 'card-form', style: 'margin:20px 0' },
+    fill(root, topBar().el, h('div', { class: 'host-wrap' }, h('div', { class: 'card-form', style: 'margin:20px 0' },
       h('h1', null, 'Вход ведущего'),
-      h('p', null, 'Код организатора игры ШПА или отдельный код кнопки, если его задали в настройках.'),
+      h('p', null, DEMO ? 'Это демо — подойдёт любой код.' : 'Код организатора игры ШПА или отдельный код кнопки, если его задали в настройках.'),
       h('label', { class: 'field' }, h('span', null, 'Код'), inp), err,
       bv('sun big wide', 'Войти', go),
-      h('p', { style: 'margin:14px 0 0' }, h('button', { class: 'link dark', type: 'button', onclick: () => { LS.set('knopka.mode', null); location.search = ''; root.replaceChildren(); teamMode(); } }, 'Я капитан команды')))));
-    inp.focus();
+      h('p', { style: 'margin:14px 0 0' }, h('button', { class: 'link dark', type: 'button', onclick: () => { LS.set('knopka.mode', null); fill(root); teamMode(); } }, 'Я участник')))));
+    if (DEMO) go(); else inp.focus();
   });
 }
 
 async function hostMode() {
   root.className = 'host';
-  let token = LS.get('knopka.host') || await hostLogin();
+  const token = LS.get('knopka.host') || await hostLogin();
   const clock = new Clock();
   let tab = LS.get('knopka.tab') || 'game';
   /** @type {any} */ let S = null;
   let busy = false;
-  const top = topBar(h('span', { class: 'tag', style: 'margin-right:auto' }, h('span', null, 'Ведущий')));
+  const top = topBar(h('span', { class: 'tag' }, h('span', null, 'Ведущий')));
   const tabsEl = h('nav', { class: 'tabs', 'aria-label': 'Разделы' });
   const body = h('div');
-  root.replaceChildren(top.el, h('div', { class: 'host-wrap' }, tabsEl, body));
-  const TABS = [['game', 'Игра'], ['teams', 'Команды'], ['score', 'Счёт'], ['settings', 'Настройки']];
+  fill(root, top.el, h('div', { class: 'host-wrap' }, tabsEl, body));
+  const TABS = [['game', 'Игра'], ['vote', 'Голосование'], ['teams', 'Команды и люди'], ['score', 'Счёт'], ['settings', 'Настройки']];
   function renderTabs() {
-    tabsEl.replaceChildren(...TABS.map(([id, label]) => bv('', label, () => { tab = id; LS.set('knopka.tab', id); sig = ''; renderTabs(); render(); }, { 'aria-current': String(tab === id) })));
+    fill(tabsEl, ...TABS.map(([id, label]) => bv('', label, () => { tab = id; LS.set('knopka.tab', id); sig = ''; renderTabs(); render(); }, { 'aria-current': String(tab === id) })));
   }
   renderTabs();
 
-  /** @param {string} name @param {Record<string, unknown>} [arg] */
   let lastActAt = 0;
+  /** @param {string} name @param {Record<string, unknown>} [arg] */
   async function act(name, arg = {}) {
-    // двойной клик по «Старт» не должен сразу нажать появившийся на его месте «Стоп»
     const guarded = ['start', 'stop', 'void'].includes(name);
     if (busy || (guarded && performance.now() - lastActAt < 700)) return null;
     busy = true;
@@ -515,20 +651,23 @@ async function hostMode() {
 
   const team = (id) => S?.teams?.find((t) => t.id === id);
   const tname = (id) => team(id)?.name ?? '—';
+  const people = () => (S?.members ?? []).map(([id, name, fio, teamId, src, kind, online, voted]) => ({ id, name, fio, team: teamId, src, kind, online, voted }));
   let sig = '';
   const phaseEl = h('span', { class: 'phase' });
 
   function render() {
     if (!S) return;
-    if (tab === 'settings') { if (sig !== 'settings') { sig = 'settings'; body.replaceChildren(...settingsTab()); } return; }
-    // перерисовываем, только когда поменялось что-то значимое (иначе клик может попасть в исчезнувшую кнопку)
+    if (tab === 'settings') { if (sig !== 'settings') { sig = 'settings'; fill(body, ...settingsTab().filter(Boolean)); } return; }
+    // перерисовываем только при значимых изменениях (иначе клик может попасть в исчезнувшую кнопку)
     const r = S.round;
-    const k = JSON.stringify([tab, S.v, r?.status, r?.presses?.map((p) => [p.team, p.confirmed, p.verdict, p.tie]), r?.waiting, r?.offline,
-      r?.presses?.map((p) => p.unsure),
-      S.teams.map((t) => [t.id, t.online, tab === 'teams' ? [Math.round((t.rtt ?? 0) / 20), Math.round(t.err ?? 0), t.seen_lag > 150] : t.seen_lag > 150])]);
+    const k = JSON.stringify([tab, S.v, r?.status, r?.presses?.map((p) => [p.team, p.confirmed, p.verdict, p.tie, p.unsure]), r?.waiting, r?.offline,
+      S.teams.map((t) => [t.id, t.online, tab === 'teams' ? [Math.round((t.rtt ?? 0) / 20), Math.round(t.err ?? 0)] : 0, t.seen_lag > 150]),
+      tab === 'vote' ? [S.vote, S.clips] : 0, tab === 'teams' ? S.members : 0]);
     if (k === sig) return;
     sig = k;
-    body.replaceChildren(...(tab === 'game' ? gameTab() : tab === 'teams' ? teamsTab() : scoreTab()));
+    const open = [...body.querySelectorAll('details[open]')].map((d) => /** @type {HTMLElement} */ (d).dataset.k);
+    fill(body, ...(tab === 'game' ? gameTab() : tab === 'vote' ? voteTab() : tab === 'teams' ? teamsTab() : scoreTab()));
+    for (const d of body.querySelectorAll('details')) if (open.includes(/** @type {HTMLElement} */ (d).dataset.k)) d.setAttribute('open', '');
   }
 
   function gameTab() {
@@ -537,32 +676,28 @@ async function hostMode() {
     const live = st === 'open' || st === 'countdown';
     const next = r ? (r.status === 'void' ? r.n : r.n + 1) : 1;
     const claimed = S.teams.filter((t) => t.claimed).length;
-    const ctl = h('section', { class: 'panel' },
+    const out = [h('section', { class: 'panel' },
       h('div', { class: 'ctl-head' }, h('h2', null, r ? `Вопрос ${r.n}` : 'Вопросов ещё не было'), phaseEl),
       h('div', { class: 'ctl-grid' },
         live ? bv('ink big', 'Стоп приёма', () => act('stop')) : bv('sun big', `Старт вопроса ${next}`, () => act('start')),
-        live ? bv('sun', `Сразу вопрос ${r.n + 1}`, () => act('start')) : null,
+        live ? bv('', `Сразу вопрос ${r.n + 1}`, () => act('start')) : null,
         bv('', 'Переиграть вопрос', async () => { if (await confirmSheet(`Переиграть вопрос ${r.n}?`, 'Нажатия и баллы этого вопроса не будут считаться. Следующий старт будет снова этим номером.', 'Переиграть')) act('void'); }, { disabled: !r || r.status === 'void' ? true : null })),
       h('p', { class: 'small muted', style: 'margin:12px 0 0' },
         `Отсчёт ${S.game.countdown_ms / 1000} с`, S.game.limit_ms ? `, на ответ ${S.game.limit_ms / 1000} с` : ', без лимита времени',
-        `. Команд с капитаном: ${claimed} из ${S.teams.length}.`));
-    const out = [ctl];
+        `. Кто жмёт кнопку — выбран в ${claimed} из ${S.teams.length} команд.`))];
     if (r) {
-      const pr = r.presses;
-      const rows = pr.map((p) => {
+      const rows = r.presses.map((p) => {
         const t = team(p.team);
-        const flags = [];
-        if (!p.confirmed) flags.push(h('span', { class: 'pill wait', title: 'Ждём, пока все команды на связи отчитаются за этот момент' }, '⏳ сверяем'));
-        else flags.push(h('span', { class: 'pill ok' }, '✓ точно'));
-        if (p.tie) flags.push(h('span', { class: 'pill warn', title: 'Разница с предыдущей командой меньше 30 мс — в пределах точности' }, '≈ одновременно'));
-        else if (p.unsure) flags.push(h('span', { class: 'pill warn', title: 'Разница с предыдущей командой меньше, чем погрешность часов двух телефонов (плохая связь у кого-то из них) — порядок не гарантирован' }, '? порядок под вопросом'));
-        if (p.flags?.includes('asof')) flags.push(h('span', { class: 'pill bad', title: 'Телефон сначала сообщил, что не нажимал, а потом прислал более раннее нажатие. У исправного телефона так почти не бывает — стоит проверить' }, 'нажатие задним числом'));
-        if (p.flags?.includes('late') || p.delivery_ms > Math.max(800, 2.5 * (p.rtt ?? 0))) flags.push(h('span', { class: 'pill warn', title: 'Нажатие шло до сервера дольше обычного (потери или обрыв связи). Время касания сохранено, но при споре стоит учесть' }, `дошло через ${sec1(p.delivery_ms)} с`));
+        const flags = [p.confirmed ? h('span', { class: 'pill ok' }, '✓ точно') : h('span', { class: 'pill wait', title: 'Ждём, пока все команды на связи отчитаются за этот момент' }, '⏳ сверяем')];
+        if (p.tie) flags.push(h('span', { class: 'pill warn', title: 'Разница с предыдущей командой меньше 30 мс' }, '≈ одновременно'));
+        else if (p.unsure) flags.push(h('span', { class: 'pill warn', title: 'Разница меньше погрешности часов двух телефонов — порядок не гарантирован' }, '? порядок под вопросом'));
+        if (p.flags?.includes('asof')) flags.push(h('span', { class: 'pill bad', title: 'Телефон сначала сообщил, что не нажимал, а потом прислал более раннее нажатие' }, 'нажатие задним числом'));
+        if (p.flags?.includes('late') || p.delivery_ms > Math.max(800, 2.5 * (p.rtt ?? 0))) flags.push(h('span', { class: 'pill warn', title: 'Нажатие шло до сервера дольше обычного. Время касания сохранено' }, `дошло через ${sec1(p.delivery_ms)} с`));
         if (p.flags?.includes('future')) flags.push(h('span', { class: 'pill bad', title: 'Метка времени была из будущего — засчитано время прихода' }, 'сбой часов'));
-        if (p.flags?.includes('sync') || p.err > 150) flags.push(h('span', { class: 'pill warn', title: 'Плохая связь: время измерено с большой погрешностью' }, `точность ±${Math.round(p.err)} мс`));
+        if (p.flags?.includes('sync') || p.err > 150) flags.push(h('span', { class: 'pill warn' }, `точность ±${Math.round(p.err)} мс`));
         if (t?.seen_lag > 150) flags.push(h('span', { class: 'pill warn', title: 'Телефон узнал о старте позже остальных' }, `старт увидели на ${sec1(t.seen_lag)} с позже`));
         return h('div', { class: `prow${p.place === 1 ? ' first' : ''}` },
-          num(p.place, p.place === 1 ? 'sun' : ''),
+          num(p.place),
           h('div', { class: 'who' }, h('b', null, tname(p.team)),
             h('div', { class: 'meta' }, t?.captain ? h('span', null, t.captain.name) : null, h('span', null, `пинг ${p.rtt ?? '—'} мс, точность ±${Math.round(p.err ?? 0)} мс`))),
           h('div', { class: 'time' }, rel(p.rel_ms), p.gap_ms != null ? h('small', null, `+${sec(p.gap_ms)} к пред.`) : null),
@@ -587,38 +722,121 @@ async function hostMode() {
     return out;
   }
 
-  function teamsTab() {
-    const rows = S.teams.map((t) => h('div', { class: 'trow' }, num(t.num),
-      h('div', null, h('b', null, t.name),
-        h('div', { class: 'meta' },
-          t.captain ? [h('span', null, h('span', { class: `dot${t.online ? ' on' : ''}` }), ' ', t.captain.name, t.captain.username ? ` @${t.captain.username}` : '', t.captain.kind === 'web' ? ' 🌐 браузер' : ''),
-            t.online ? h('span', null, `пинг ${t.rtt ?? '—'} мс, точность ±${t.err ?? '—'} мс`) : h('span', { style: 'color:var(--bad)' }, 'нет связи')]
-            : h('span', null, 'капитана нет'))),
-      t.captain ? bv('small', 'Освободить', async () => { if (await confirmSheet(`Освободить «${t.name}»?`, `${t.captain.name} больше не сможет нажимать за эту команду. Команду сможет взять другой человек.`, 'Освободить')) act('release', { team: t.id }); }) : h('span')));
+  function voteTab() {
+    const g = S.vote, teams = S.teams;
+    const label = { off: 'не начато', open: 'идёт', closed: 'закрыто, итоги скрыты', shown: 'итоги на экране' }[g.status];
+    const sorted = S.clips.slice().sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0) || a.num - b.num);
+    const max = Math.max(1, ...S.clips.map((k) => k.votes ?? 0));
+    const ppl = people();
+    const voters = ppl.filter((p) => p.voted).length;
+    const canVote = ppl.filter((p) => (p.team != null || p.src === 'roster') && (g.web || p.kind !== 'web') && (!g.roster_only || p.src === 'roster')).length;
     return [
-      h('section', { class: 'panel' }, h('h2', null, 'Как капитанам подключиться'),
-        h('div', { class: 'join' },
-          BOT === 'shpa_game_bot' ? h('img', { src: 'qr-join.svg', alt: 'QR-код: открыть кнопку в Telegram', width: 150, height: 150 }) : h('span'),
+      h('section', { class: 'panel' },
+        h('div', { class: 'ctl-head' }, h('h2', null, g.title), h('span', { class: `phase${g.status === 'open' ? ' live' : ''}` }, label)),
+        h('div', { class: 'row' },
+          g.status === 'off' || g.status === 'closed' ? bv('sun big', g.status === 'off' ? 'Открыть голосование' : 'Открыть снова', () => act('vote', { status: 'open' })) : null,
+          g.status === 'open' ? bv('ink big', 'Закрыть голосование', () => act('vote', { status: 'closed' })) : null,
+          g.status === 'closed' ? bv('sun big', 'Показать итоги на экране', () => act('vote', { status: 'shown' })) : null,
+          g.status === 'shown' ? bv('', 'Скрыть итоги', () => act('vote', { status: 'closed' })) : null,
+          g.total ? bv('', 'Сбросить голоса', async () => { if (await confirmSheet('Сбросить все голоса?', 'Голосование начнётся с нуля.', 'Сбросить')) act('vote_reset'); }) : null),
+        h('p', { class: 'small muted', style: 'margin:12px 0 0' },
+          `Проголосовали ${voters} из ${canVote}, кто может голосовать. За клип своего профбюро голос не принимается. `,
+          'Участникам итоги не видны, пока вы не нажмёте «Показать итоги».')),
+      h('section', { class: 'panel' }, h('h2', null, 'Голоса (видите только вы)'),
+        h('div', { class: 'res' }, sorted.map((k) => h('div', { class: 'r' }, num(k.num),
+          h('div', { class: 'track' }, h('div', { class: 'fill', style: `width:${Math.round(((k.votes ?? 0) / max) * 100)}%` }),
+            h('span', { class: 'lbl' }, clipName(k, teams), clipSub(k, teams) ? ` · ${clipSub(k, teams)}` : '')),
+          h('span', { class: 'n' }, String(k.votes ?? 0), h('small', null, `из списка ${k.roster ?? 0}`))))),
+        h('div', { class: 'row', style: 'margin-top:14px' }, bv('small', 'Изменить список клипов', editClips))),
+      h('section', { class: 'panel' }, h('h2', null, 'Правила голосования'),
+        h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: g.roster_only, onchange: (e) => act('settings', { vote_roster_only: e.target.checked }) }),
+          'Только участники из списка выезда (зарегистрированные в игре ШПА)'),
+        h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: g.web, onchange: (e) => act('settings', { vote_web: e.target.checked }) }),
+          'Принимать голоса из браузера (без Telegram)'),
+        h('p', { class: 'small muted', style: 'margin:6px 0 0' }, 'Из браузера легко зайти несколько раз под разными именами, поэтому по умолчанию голосуют только через Telegram: один аккаунт — один голос.')),
+    ];
+  }
+
+  function editClips() {
+    const rows = h('div');
+    const addRow = (teamId, title) => {
+      const sel = h('select', null, h('option', { value: '' }, 'без профбюро'), ...S.teams.map((t) => h('option', { value: t.id, selected: t.id === teamId }, t.name)));
+      const inp = h('input', { value: title || '', maxlength: 80, placeholder: 'Название (необязательно)' });
+      const row = h('div', { class: 'row', style: 'margin-bottom:8px;flex-wrap:nowrap' },
+        h('label', { class: 'field', style: 'margin:0;flex:1' }, sel), h('label', { class: 'field', style: 'margin:0;flex:2' }, inp),
+        bv('small', '✕', () => row.remove(), { 'aria-label': 'Убрать клип' }));
+      rows.append(row);
+    };
+    for (const k of S.clips) addRow(k.team, k.title);
+    sheet((close) => [
+      h('h2', null, 'Клипы'),
+      h('p', null, 'Чей клип — за него не смогут голосовать люди из этого профбюро. Название показывается вместо имени профбюро.'),
+      rows,
+      h('div', { class: 'row', style: 'margin:6px 0 14px' },
+        bv('small', '+ Клип', () => addRow(null, '')),
+        bv('small', 'По клипу от каждой команды', () => { fill(rows); for (const t of S.teams) addRow(t.id, ''); })),
+      h('div', { class: 'row' },
+        bv('sun', 'Сохранить', async () => {
+          const items = [...rows.children].map((r) => ({ team: /** @type {HTMLSelectElement} */ (r.querySelector('select')).value || null, title: /** @type {HTMLInputElement} */ (r.querySelector('input')).value }));
+          if (await act('clips', { items })) close();
+        }),
+        bv('', 'Отмена', close)),
+    ]);
+  }
+
+  function teamsTab() {
+    const ppl = people();
+    const srcLabel = (p) => (p.src === 'roster' ? 'из списка' : p.src === 'host' ? 'назначен' : p.src === 'self' ? 'выбрал сам' : '');
+    const memberRow = (p, t) => h('div', { class: 'mrow' },
+      h('span', { class: `dot${p.online ? ' on' : ''}` }),
+      h('span', { class: 'nm' }, p.name, p.fio && p.fio !== p.name ? h('small', null, ` · ${p.fio}`) : null,
+        h('small', null, ` · ${[srcLabel(p), p.kind === 'web' ? 'браузер' : '', p.voted ? 'голосовал' : ''].filter(Boolean).join(', ')}`)),
+      t && t.captain?.id !== p.id ? bv('small', 'Жмёт он', () => act('captain', { team: t.id, client: p.id })) : t ? h('span', { class: 'pill ok' }, 'жмёт кнопку') : null,
+      bv('small', 'Перевести', () => moveSheet(p)),
+      bv('small', 'Убрать', async () => { if (await confirmSheet(`Убрать «${p.name}»?`, 'Его голос и кнопка снимутся. Если это настоящий участник — он сможет войти заново.', 'Убрать')) act('kick', { client: p.id }); }));
+    const rows = S.teams.map((t) => {
+      const mem = ppl.filter((p) => p.team === t.id);
+      return h('div', { class: 'trow' }, num(t.num),
+        h('div', null, h('b', null, t.name),
+          h('div', { class: 'meta' },
+            t.captain ? [h('span', null, h('span', { class: `dot${t.online ? ' on' : ''}` }), ' жмёт ', t.captain.name, t.captain.kind === 'web' ? ' (браузер)' : ''),
+              t.online ? h('span', null, `пинг ${t.rtt ?? '—'} мс, ±${t.err ?? '—'} мс`) : h('span', { style: 'color:var(--bad)' }, 'нет связи')]
+              : h('span', null, 'кто жмёт — не выбрано'),
+            h('span', null, `${mem.length} ${plural(mem.length, 'человек', 'человека', 'человек')}`))),
+        t.captain ? bv('small', 'Освободить кнопку', async () => { if (await confirmSheet(`Освободить кнопку «${t.name}»?`, `${t.captain.name} больше не будет жать за команду. Выбрать заново смогут в команде.`, 'Освободить')) act('release', { team: t.id }); }) : h('span'),
+        mem.length ? h('details', { class: 'members', 'data-k': `t${t.id}` }, h('summary', null, 'Кто в профбюро'), mem.map((p) => memberRow(p, t))) : null);
+    });
+    const loose = ppl.filter((p) => p.team == null);
+    return [
+      h('section', { class: 'panel' }, h('h2', null, 'Как участникам подключиться'),
+        h('div', { class: 'join' }, qrBox(JOIN_URL),
           h('div', null,
-            h('p', { style: 'margin:0 0 10px' }, 'Капитан сканирует QR или открывает ссылку — в Telegram откроется кнопка, он выбирает свою команду.'),
+            h('p', { style: 'margin:0 0 10px' }, BOT
+              ? 'Сканируют QR — откроется бот вечерки. Каждый выбирает своё профбюро (зарегистрированным в игре ШПА оно подставится само), в команде выбирают, кто жмёт кнопку.'
+              : 'Бот вечерки ещё не подключён — пока QR ведёт на страницу в браузере. Когда появится бот, здесь будет ссылка на него.'),
             h('p', { style: 'margin:0 0 12px' }, h('span', { class: 'code' }, JOIN_URL)),
             h('div', { class: 'row' }, bv('small', 'Скопировать ссылку', () => copy(JOIN_URL)),
-              bv('small', 'Ссылка на экран для зала', () => copy(`${location.origin}${location.pathname}?screen`)))))),
-      h('section', { class: 'panel' }, h('h2', null, 'Если Telegram не открывается'),
-        h('div', { class: 'join' },
-          location.hostname === 'mxsm-brsv.github.io' ? h('img', { src: 'qr-web.svg', alt: 'QR-код: кнопка в браузере', width: 150, height: 150 }) : h('span'),
-          h('div', null,
-            h('p', { style: 'margin:0 0 10px' }, 'Та же кнопка открывается в обычном браузере телефона: капитан вводит имя и выбирает команду. У ведущего такой капитан отмечен «браузер». Честность та же — время касания и часы сервера.'),
-            h('p', { style: 'margin:0 0 12px' }, h('span', { class: 'code' }, `${location.origin}${location.pathname}`)),
-            bv('small', 'Скопировать ссылку', () => copy(`${location.origin}${location.pathname}`))))),
+              bv('small', 'Ссылка на экран для зала', () => copy(`${PAGE_URL}?screen`)))))),
       h('section', { class: 'panel' },
         h('div', { class: 'row', style: 'justify-content:space-between;margin-bottom:6px' }, h('h2', { style: 'margin:0' }, 'Команды'),
-          h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: S.game.locked, onchange: (e) => act('lock', { on: e.target.checked }) }), 'Закрыть выбор команд')),
+          h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: S.game.locked, onchange: (e) => act('lock', { on: e.target.checked }) }), 'Закрыть выбор, кто жмёт')),
         h('div', null, rows),
+        loose.length ? h('details', { class: 'members', 'data-k': 'loose', style: 'margin-top:12px' }, h('summary', null, `Без профбюро и профком: ${loose.length}`), loose.map((p) => memberRow(p, null))) : null,
         h('div', { class: 'row', style: 'margin-top:14px' },
-          bv('', 'Изменить список', () => editTeams()),
-          bv('', 'Освободить все', async () => { if (await confirmSheet('Освободить все команды?', 'Все капитаны отключатся от команд и выберут их заново.', 'Освободить все')) act('release_all'); }))),
+          bv('', 'Изменить список команд', () => editTeams()),
+          bv('', 'Освободить все кнопки', async () => { if (await confirmSheet('Освободить все кнопки?', 'В каждой команде заново выберут, кто жмёт.', 'Освободить все')) act('release_all'); }))),
     ];
+  }
+
+  /** @param {any} p */
+  function moveSheet(p) {
+    sheet((close) => [
+      h('h2', null, `Профбюро: ${p.name}`),
+      h('p', null, 'Ведущий может перевести человека в любое профбюро. Если он голосовал за клип нового профбюро, голос снимется.'),
+      ...S.teams.map((t) => h('button', { class: `pickrow${t.id === p.team ? ' on' : ''}`, type: 'button', onclick: async () => { if (await act('member', { client: p.id, team: t.id })) close(); } }, num(t.num), t.name)),
+      h('button', { class: `pickrow${p.team == null ? ' on' : ''}`, type: 'button', onclick: async () => { if (await act('member', { client: p.id, team: null })) close(); } }, 'Без профбюро'),
+      h('div', { class: 'row' }, bv('', 'Отмена', close)),
+    ]);
   }
 
   function editTeams() {
@@ -626,7 +844,7 @@ async function hostMode() {
     ta.value = S.teams.map((t) => t.name).join('\n');
     sheet((close) => [
       h('h2', null, 'Список команд'),
-      h('p', null, 'По одной в строке, до 20. Номер команды — номер строки; капитан остаётся за номером.'),
+      h('p', null, 'По одной в строке, до 20. Профбюро из списка выезда узнаются по сокращению в названии (ИРЭ, ГПИ…).'),
       h('label', { class: 'field' }, ta),
       h('div', { class: 'row' },
         bv('sun', 'Сохранить список', async () => { const names = ta.value.split('\n').map((x) => x.trim()).filter(Boolean); if (await act('teams', { names })) close(); }),
@@ -643,7 +861,7 @@ async function hostMode() {
           h('span', { class: 'score-n' }, String(t.score)),
           bv('small', '+1', () => act('adjust', { team: t.id, delta: 1 }), { 'aria-label': `Плюс балл: ${t.name}` })))))),
       h('section', { class: 'panel' }, h('h2', null, 'Новая игра'),
-        h('p', { style: 'margin:0 0 12px' }, 'Счёт и вопросы с нуля. Команды и капитаны остаются.'),
+        h('p', { style: 'margin:0 0 12px' }, 'Счёт и вопросы с нуля. Команды, люди и голосование остаются.'),
         bv('ink', 'Начать новую игру', async () => { if (await confirmSheet('Начать новую игру?', 'Счёт всех команд и история вопросов обнулятся.', 'Начать заново')) act('new_game'); }))];
   }
 
@@ -651,10 +869,10 @@ async function hostMode() {
     const g = S.game;
     /** @param {string} label @param {string} key @param {[number,string][]} opts @param {number} cur */
     const sel = (label, key, opts, cur) => h('label', { class: 'field' }, h('span', null, label),
-      h('select', { onchange: (e) => act('settings', { [key]: Number(e.target.value) }) },
-        ...opts.map(([v, t]) => h('option', { value: v, selected: v === cur }, t))));
+      h('select', { onchange: (e) => act('settings', { [key]: Number(e.target.value) }) }, ...opts.map(([v, t]) => h('option', { value: v, selected: v === cur }, t))));
     const codeInp = /** @type {HTMLInputElement} */ (h('input', { maxlength: 60, autocomplete: 'off', placeholder: g.own_code ? 'Задан — введите новый, чтобы сменить' : 'Не задан' }));
     const title = /** @type {HTMLInputElement} */ (h('input', { maxlength: 60, value: g.title }));
+    const vtitle = /** @type {HTMLInputElement} */ (h('input', { maxlength: 60, value: S.vote.title }));
     return [
       h('section', { class: 'panel' }, h('h2', null, 'Вопрос'),
         h('div', { class: 'set-grid' },
@@ -663,22 +881,23 @@ async function hostMode() {
           sel('Верный ответ', 'pts_ok', [[1, '+1'], [2, '+2'], [3, '+3'], [5, '+5']], g.pts_ok),
           sel('Неверный ответ', 'pts_bad', [[0, '0'], [1, '−1'], [2, '−2'], [3, '−3']], g.pts_bad),
           sel('Блок за нажатие до старта', 'lockout_ms', [[0, 'Нет'], [500, '0,5 с'], [1000, '1 с'], [2000, '2 с']], g.lockout_ms)),
-        h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: g.auto_close, onchange: (e) => act('settings', { auto_close: e.target.checked }) }),
-          'Закрывать приём, когда нажали все команды'),
+        h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: g.auto_close, onchange: (e) => act('settings', { auto_close: e.target.checked }) }), 'Закрывать приём, когда нажали все команды'),
         h('p', { class: 'small muted', style: 'margin:10px 0 0' }, 'Отсчёт даёт всем телефонам узнать о старте заранее: кнопка загорается у всех в один момент по часам сервера. Рекомендуем 3 с.')),
-      h('section', { class: 'panel' }, h('h2', null, 'Название на экране'),
-        h('label', { class: 'field' }, title), bv('small', 'Сохранить название', () => act('settings', { title: title.value }))),
+      h('section', { class: 'panel' }, h('h2', null, 'Названия на экране'),
+        h('label', { class: 'field' }, h('span', null, 'Вечер'), title),
+        h('label', { class: 'field' }, h('span', null, 'Голосование'), vtitle),
+        bv('small', 'Сохранить названия', () => act('settings', { title: title.value, vote_title: vtitle.value }))),
       h('section', { class: 'panel' }, h('h2', null, 'Код ведущего'),
-        h('p', { style: 'margin:0 0 12px' }, 'Код организатора ШПА подходит всегда. Можно задать отдельный код — только для кнопки, чтобы передать его ведущему вечера.'),
+        h('p', { style: 'margin:0 0 12px' }, 'Код организатора ШПА подходит всегда. Можно задать отдельный код — только для вечерки, чтобы передать его ведущему.'),
         h('label', { class: 'field' }, codeInp),
         h('div', { class: 'row' },
           bv('small', 'Задать код', async () => { if (await act('host_code', { code: codeInp.value })) { codeInp.value = ''; toast('Код ведущего сохранён'); } }),
           g.own_code ? bv('small', 'Убрать свой код', () => act('host_code', { code: '' })) : null,
           bv('small', 'Выйти на других устройствах', () => act('logout_others').then((r) => r && toast('Другие ведущие вышли'))))),
-      h('section', { class: 'panel' }, h('h2', null, 'Это устройство'),
+      DEMO ? null : h('section', { class: 'panel' }, h('h2', null, 'Это устройство'),
         h('div', { class: 'row' },
-          bv('small', 'Открыть экран для зала', () => { location.href = `${location.pathname}?screen`; }),
-          bv('small', 'Перейти к кнопке капитана', () => { LS.set('knopka.mode', null); location.href = location.pathname + location.hash; }),
+          bv('small', 'Открыть экран для зала', () => { location.href = `${location.pathname}?screen${DEMO ? '&demo' : ''}`; }),
+          bv('small', 'Перейти к телефону участника', () => { LS.set('knopka.mode', null); location.href = location.pathname + (DEMO ? '?demo' : '') + location.hash; }),
           bv('small', 'Выйти', () => { LS.set('knopka.host', null); LS.set('knopka.mode', null); location.reload(); }))),
     ];
   }
@@ -689,7 +908,7 @@ async function hostMode() {
     poller.stop();
     LS.set('knopka.host', null);
     toast('Вход ведущего истёк — введите код ещё раз');
-    root.replaceChildren();
+    fill(root);
     hostMode();
   }
 
@@ -697,7 +916,7 @@ async function hostMode() {
     onNet: (ok) => setNet(top.net, ok, ok ? 'на связи' : 'нет связи') });
   poller.start();
 
-  // секундомер вопроса — каждый кадр, без перерисовки списка
+  let lastPh = '';
   const tickPhase = () => {
     if (dead) return;
     const r = S?.round;
@@ -707,13 +926,11 @@ async function hostMode() {
         : ph === 'void' ? 'переигран' : `приём закрыт${r.settled ? '' : ', сверяем время'}`;
       if (phaseEl.textContent !== txt) phaseEl.textContent = txt;
       phaseEl.classList.toggle('live', ph === 'open' || ph === 'countdown');
-      // смена фазы (отсчёт → идёт → закрыт по лимиту) меняет кнопки
       if (lastPh !== ph) { lastPh = ph; sig = ''; render(); }
-      if (Number.isFinite(clock.lastRtt) && poller.online) setNet(top.net, true, `${Math.round(clock.lastRtt)} мс`);
     }
+    if (clock.ready && Number.isFinite(clock.lastRtt) && poller.online) setNet(top.net, true, `${Math.round(clock.lastRtt)} мс`);
     requestAnimationFrame(tickPhase);
   };
-  let lastPh = '';
   requestAnimationFrame(tickPhase);
 }
 
@@ -725,61 +942,90 @@ async function screenMode() {
   const qEl = h('div', { class: 'q' });
   const clockEl = h('div', { class: 'clock' });
   const msg = h('div', { class: 'msg' });
+  const qrEl = h('div', { class: 'qr hidden' });
+  qrEl.innerHTML = qrSvg(JOIN_URL, '#0B2A3D', '#FFFFFF', 2);
   const list = h('div', { class: 'list' });
-  root.replaceChildren(
-    h('div', { class: 'side' }, logoPlate('lg'), qEl, clockEl, msg),
-    list);
+  fill(root, 
+    h('div', { class: 'art', 'aria-hidden': 'true' }),
+    h('div', { class: 'main' },
+      h('div', { class: 'head' }, h('img', { src: 'mark.svg', alt: '' }), qEl),
+      h('div', { class: 'body' }, h('div', { class: 'left' }, clockEl, msg, qrEl), list)));
   /** @type {any} */ let S = null;
   let sig = '';
   const tname = (id) => S?.teams?.find((t) => t.id === id)?.name ?? '—';
-  const tnum = (id) => S?.teams?.find((t) => t.id === id)?.num ?? '';
 
-  function renderList() {
-    const r = S.round;
+  /** Что показываем: вопрос, голосование или счёт. */
+  function mode() {
+    const r = S.round, v = S.vote;
     const ph = r && clock.ready ? roundPhase(r, clock.server()) : 'idle';
-    const showBoard = !r || ph === 'void' || (ph === 'closed' && !r.presses.length);
-    const k = JSON.stringify([showBoard, S.teams.map((t) => [t.id, t.name, t.score]), r?.id, r?.presses?.map((p) => [p.team, p.confirmed, p.verdict])]);
+    if (ph === 'countdown' || ph === 'open') return { m: 'round', ph };
+    if (v.status !== 'off') return { m: 'vote', ph };
+    if (r && ph === 'closed' && r.presses.length) return { m: 'round', ph };
+    return { m: 'board', ph };
+  }
+
+  function renderList(md) {
+    const r = S.round, v = S.vote;
+    const k = JSON.stringify([md.m, v.status, md.m === 'vote' ? S.clips : 0, S.teams.map((t) => [t.id, t.name, t.score]), r?.id, r?.presses?.map((p) => [p.team, p.confirmed, p.verdict])]);
     if (k === sig) return;
     sig = k;
-    if (showBoard) {
+    if (md.m === 'board') {
       const teams = S.teams.slice().sort((a, b) => b.score - a.score || a.num - b.num);
-      list.replaceChildren(h('h2', { class: 'board' }, 'Счёт'), ...teams.map((t, i) => h('div', { class: `bar${i === 0 && t.score > 0 ? ' first' : ''}` },
+      fill(list, h('h2', { class: 'board' }, 'Счёт'), ...teams.map((t, i) => h('div', { class: `bar${i === 0 && t.score > 0 ? ' first' : ''}` },
         num(t.num), h('b', null, t.name), h('span', { class: 't' }, String(t.score)))));
+    } else if (md.m === 'vote') {
+      const shown = v.status === 'shown';
+      const clips = shown ? S.clips.slice().sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0) || a.num - b.num) : S.clips;
+      const max = Math.max(1, ...S.clips.map((c) => c.votes ?? 0));
+      const top = shown ? clips[0]?.votes ?? 0 : -1;
+      fill(list, h('h2', { class: 'board' }, shown ? 'Приз зрительских симпатий' : v.title),
+        ...clips.map((c, i) => {
+          const bar = h('div', { class: `bar${shown && (c.votes ?? 0) === top && top > 0 ? ' first' : ''}` },
+            shown ? h('span', { class: 'fill', style: 'width:0%' }) : null,
+            num(shown ? i + 1 : c.num), h('b', null, clipName(c, S.teams), c.title && c.team ? h('small', null, tname(c.team)) : null),
+            h('span', { class: 't' }, shown ? String(c.votes ?? 0) : ''));
+          if (shown) requestAnimationFrame(() => requestAnimationFrame(() => { /** @type {HTMLElement} */ (bar.querySelector('.fill')).style.width = `${Math.round(((c.votes ?? 0) / max) * 100)}%`; }));
+          return bar;
+        }));
     } else {
-      list.replaceChildren(h('h2', { class: 'board' }, 'Кто нажал'), ...(r.presses.length ? [] : [h('div', { class: 'msg' }, 'Пока никто')]), ...r.presses.map((p) => h('div', { class: `bar${p.place === 1 ? ' first' : ''}` },
-        num(p.place, p.place === 1 ? 'ink' : ''), h('b', null, tname(p.team)),
-        h('span', { class: 't' }, rel(p.rel_ms), h('small', null, p.verdict === 'ok' ? 'верно' : p.verdict === 'bad' ? 'неверно' : p.confirmed ? '' : 'сверяем…')))));
+      fill(list, h('h2', { class: 'board' }, 'Кто нажал'), ...(r.presses.length ? [] : [h('div', { class: 'msg', style: 'text-align:left' }, 'Пока никто')]),
+        ...r.presses.map((p) => h('div', { class: `bar${p.place === 1 ? ' first' : ''}` },
+          num(p.place), h('b', null, tname(p.team)),
+          h('span', { class: 't' }, rel(p.rel_ms), h('small', null, p.verdict === 'ok' ? 'верно' : p.verdict === 'bad' ? 'неверно' : p.confirmed ? '' : 'сверяем…')))));
     }
   }
 
   function paint() {
     if (S) {
-      const r = S.round;
+      const r = S.round, v = S.vote, md = mode();
       const now = clock.ready ? clock.server() : NaN;
-      const ph = r && clock.ready ? roundPhase(r, now) : 'idle';
-      let cls = 'clock closed', txt = '', q = S.game.title, m = '';
-      if (r) q = `Вопрос ${r.n}`;
-      if (ph === 'countdown') { cls = 'clock count'; txt = String(Math.max(1, Math.ceil((r.opens_ms - now) / 1000))); m = 'Приготовьтесь'; }
-      else if (ph === 'open') {
-        cls = 'clock open';
-        txt = r.closes_ms ? String(Math.max(0, Math.ceil((r.closes_ms - now) / 1000))) : sec1(now - r.opens_ms);
-        m = r.closes_ms ? 'Секунд на ответ' : 'Жмите, когда готов ответ';
-      } else if (ph === 'closed') {
-        txt = 'Стоп';
-        const okP = r.presses.find((p) => p.verdict === 'ok'), nextP = r.presses.find((p) => p.verdict !== 'bad');
-        m = okP ? `Верный ответ: «${tname(okP.team)}»` : nextP ? `Отвечает «${tname(nextP.team)}»` : r.presses.length ? 'Верного ответа нет' : 'Никто не нажал';
-      }
-      else if (ph === 'void') { txt = 'Пауза'; m = 'Вопрос переиграем'; }
-      else { txt = 'Скоро'; m = 'Капитаны, откройте кнопку в Telegram'; }
+      let cls = 'clock closed', txt = /** @type {any} */ (''), sub = '', q = S.game.title, qs2 = '', m = '', showQr = false;
+      if (md.m === 'vote') {
+        q = v.title; qs2 = 'голосование';
+        if (v.status === 'open') { cls = 'clock open'; txt = String(v.total); sub = plural(v.total, 'голос', 'голоса', 'голосов'); m = 'Голосуйте в боте вечерки. За клип своего профбюро — нельзя'; showQr = true; }
+        else if (v.status === 'closed') { txt = 'Стоп'; m = 'Голосование закрыто. Итоги — скоро'; }
+        else { cls = 'clock open'; txt = String(v.total); sub = plural(v.total, 'голос', 'голоса', 'голосов'); m = 'Спасибо всем, кто голосовал!'; }
+      } else if (md.m === 'round') {
+        q = `Вопрос ${r.n}`; qs2 = S.game.title;
+        if (md.ph === 'countdown') { cls = 'clock count'; txt = String(Math.max(1, Math.ceil((r.opens_ms - now) / 1000))); m = 'Приготовьтесь'; }
+        else if (md.ph === 'open') { cls = 'clock open'; txt = r.closes_ms ? String(Math.max(0, Math.ceil((r.closes_ms - now) / 1000))) : sec1(now - r.opens_ms); m = r.closes_ms ? 'Секунд на ответ' : 'Жмите, когда готов ответ'; }
+        else {
+          txt = 'Стоп';
+          const okP = r.presses.find((p) => p.verdict === 'ok'), nextP = r.presses.find((p) => p.verdict !== 'bad');
+          m = okP ? `Верный ответ: «${tname(okP.team)}»` : nextP ? `Отвечает «${tname(nextP.team)}»` : 'Верного ответа нет';
+        }
+      } else { txt = 'Скоро'; m = 'Откройте бота вечерки и выберите своё профбюро'; showQr = true; qs2 = 'кнопка и голосование'; }
       if (clockEl.className !== cls) clockEl.className = cls;
-      if (clockEl.textContent !== txt) clockEl.textContent = txt;
-      if (qEl.textContent !== q) qEl.textContent = q;
+      const ck = `${txt}|${sub}`;
+      if (clockEl.dataset.k !== ck) { clockEl.dataset.k = ck; fill(clockEl, h('span', null, txt, sub ? h('small', null, sub) : null)); }
+      const qk = `${q}|${qs2}`;
+      if (qEl.dataset.k !== qk) { qEl.dataset.k = qk; fill(qEl, q, qs2 ? h('small', null, qs2) : null); }
       if (msg.textContent !== m) msg.textContent = m;
-      renderList();
+      qrEl.classList.toggle('hidden', !showQr);
+      renderList(md);
     }
     requestAnimationFrame(paint);
   }
-  void tnum;
   const poller = new Poller({ api, clock, fn: 'bz_screen', onState: (s) => { S = s; } });
   poller.start();
   requestAnimationFrame(paint);
@@ -789,7 +1035,16 @@ async function screenMode() {
 // ───────────────────────── старт ─────────────────────────
 
 (async () => {
-  if (!CFG.url) { fatal('Кнопка не настроена', 'Нет адреса сервера. Его подставляет сборка на GitHub (Deploy game) из deploy.env.'); return; }
+  if (DEMO) {
+    const { DemoServer, DemoApi } = await import('./demo.js');
+    let srv = null;
+    try { srv = /** @type {any} */ (window.parent)?.__knopkaDemo ?? null; } catch { /* другой источник */ }
+    if (!srv) { srv = /** @type {any} */ (window).__knopkaDemo ?? new DemoServer(); /** @type {any} */ (window).__knopkaDemo = srv; }
+    api = new DemoApi(srv);
+  } else {
+    if (!CFG.url) { fatal('Кнопка не настроена', 'Нет адреса сервера. Его подставляет сборка на GitHub (Deploy game) из deploy.env.'); return; }
+    api = new Api(CFG.url, CFG.key || '');
+  }
   await initTelegram();
   const mode = qs.has('screen') ? 'screen' : qs.has('host') || LS.get('knopka.mode') === 'host' ? 'host' : 'team';
   try {
@@ -798,6 +1053,6 @@ async function screenMode() {
     else await teamMode();
   } catch (e) {
     console.error(e);
-    fatal('Не получилось открыть кнопку', `${e instanceof Error ? e.message : e}. Проверь интернет и открой ещё раз.`);
+    fatal('Не получилось открыть', `${e instanceof Error ? e.message : e}. Проверь интернет и открой ещё раз.`);
   }
 })();

@@ -1,9 +1,10 @@
-// «Кнопка»: вход капитана из Telegram. Проверяет подпись initData (HMAC от токена бота) и выдаёт токен
-// телефона через bz_register. Один Telegram-аккаунт — один активный телефон: новый вход отключает старый.
-// Секрет: BOT_TOKEN. Деплой: supabase functions deploy knopka --no-verify-jwt
+// «Кнопка»: вход из Telegram. Проверяет подпись initData (HMAC от токена бота вечерки или «ШПА») и выдаёт
+// токен телефона через bz_register. Один Telegram-аккаунт — один активный телефон: новый вход отключает старый.
+// Секреты: VECHERKA_BOT_TOKEN, BOT_TOKEN. Деплой: supabase functions deploy knopka --no-verify-jwt
 import { BOT_TOKEN, CORS, json, serviceRpc } from '../_shared/env.ts';
 
 const MAX_AGE_S = 2 * 24 * 3600; // initData старше двух суток не принимаем
+const TOKENS = [Deno.env.get('VECHERKA_BOT_TOKEN') ?? '', BOT_TOKEN].filter(Boolean);
 
 const enc = new TextEncoder();
 async function hmac(key: ArrayBuffer | Uint8Array, data: string) {
@@ -19,8 +20,11 @@ async function verifyInitData(initData: string) {
   if (!hash) return null;
   p.delete('hash');
   const check = [...p.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([k, v]) => `${k}=${v}`).join('\n');
-  const secret = await hmac(enc.encode('WebAppData'), BOT_TOKEN);
-  if (hex(await hmac(secret, check)) !== hash) return null;
+  let signed = false;
+  for (const token of TOKENS) {
+    if (hex(await hmac(await hmac(enc.encode('WebAppData'), token), check)) === hash) { signed = true; break; }
+  }
+  if (!signed) return null;
   const authDate = Number(p.get('auth_date') ?? 0);
   if (!authDate || Date.now() / 1000 - authDate > MAX_AGE_S) return null;
   const user = JSON.parse(p.get('user') ?? 'null');
@@ -30,7 +34,7 @@ async function verifyInitData(initData: string) {
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'POST only' }, 405);
-  if (!BOT_TOKEN) return json({ error: 'Сервер не настроен: нет BOT_TOKEN' }, 500);
+  if (!TOKENS.length) return json({ error: 'Сервер не настроен: нет токена бота' }, 500);
   try {
     const body = await req.json().catch(() => ({}));
     const user = typeof body.initData === 'string' ? await verifyInitData(body.initData) : null;
