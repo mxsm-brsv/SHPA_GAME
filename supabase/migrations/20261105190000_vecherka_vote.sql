@@ -524,7 +524,7 @@ begin
 
   elsif p_act = 'new_game' then
     update bz_game set round_id = null where id = 1;
-    delete from bz_presses; delete from bz_rounds; delete from bz_adjust;
+    delete from bz_presses where true; delete from bz_rounds where true; delete from bz_adjust where true;
 
   elsif p_act = 'host_code' then
     code := _bz_norm_code(a->>'code');
@@ -544,7 +544,7 @@ begin
     update bz_game set vote_status = vv where id = 1;
 
   elsif p_act = 'vote_reset' then
-    delete from bz_votes;
+    delete from bz_votes where true;
     update bz_game set vote_status = 'off' where id = 1;
 
   elsif p_act = 'clips' then
@@ -553,7 +553,7 @@ begin
     if jsonb_typeof(a->'items') <> 'array' or jsonb_array_length(a->'items') < 1 or jsonb_array_length(a->'items') > 40 then
       return jsonb_build_object('error', 'Нужно от 1 до 40 клипов');
     end if;
-    delete from bz_clips;
+    delete from bz_clips where true;
     i := 0;
     for it in select * from jsonb_array_elements(a->'items') loop
       i := i + 1;
