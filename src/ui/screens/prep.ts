@@ -6,6 +6,7 @@ import type { SharedTest } from '../../core/backend';
 import { haptic } from '../../core/telegram';
 import { $, el, esc, modal, onAct, toast } from '../../lib/dom';
 import { openCaseOfDay, openRing } from '../../games/law';
+import { openDuelHub } from '../../games/duel';
 import type { App } from '../app';
 import { openContest } from './contest';
 
@@ -95,7 +96,8 @@ async function fillPrep(app: App, node: HTMLElement) {
       </div>
       ${inGame ? `<div class="section-h">Правовуха в игре</div>
         <div class="row" style="gap:8px"><button class="btn btn-blue grow btn-col" data-act="case">${icon('scales', 20)}<span class="sub">Дело дня · +20</span></button>
-        <button class="btn btn-blue grow btn-col" data-act="ring">${icon('target', 20)}<span class="sub">Правовой ринг</span></button></div>` : '<div class="small muted center">После подготовки — вход в игру на первом экране.</div>'}
+        <button class="btn btn-blue grow btn-col" data-act="ring">${icon('target', 20)}<span class="sub">Правовой ринг</span></button>
+        <button class="btn btn-blue grow btn-col" data-act="duel">${icon('swords', 20)}<span class="sub">Поединок</span></button></div>` : '<div class="small muted center">После подготовки — вход в игру на первом экране.</div>'}
       <div class="section-h">Мои тесты</div>
       <div class="list">${tests.map((t, i) => `<div class="li"><div class="grow"><b>${esc(t.name)}</b><div class="small muted">${t.ids.length} вопр.${t.timer ? ` · ${t.timer} с на ответ` : ''}${t.code ? ` · код ${esc(t.code)}` : ''}${t.author ? ` · от ${esc(t.author)}` : ''}</div></div>
         <button class="btn btn-ghost btn-sm" data-act="tshare" data-i="${i}" aria-label="Поделиться">${icon('envelope', 16)}</button>
@@ -158,6 +160,7 @@ async function fillPrep(app: App, node: HTMLElement) {
     contest: () => openContest(app, all()),
     case: () => { app.closeOverlay(); openCaseOfDay(app); },
     ring: () => { app.closeOverlay(); openRing(app); },
+    duel: () => { app.closeOverlay(); openDuelHub(app); },
   });
   draw();
 }

@@ -1,21 +1,20 @@
-// Плашка голосования для экрана в зале: «за» и «против» по командам растут вживую, места переставляются,
-// в конце — лучшая команда. Открывается из панели организатора («Голосование» → «На экран»). Обновляется каждые 2 с.
-import { factionById } from '../../config/factions';
+// Плашка голосования для экрана в зале: ✅ и ❌ по командам растут вживую (новые голоса взлетают значками),
+// места переставляются, в конце — лучшая команда. Открывается из панели организатора («Голосование» → «На экран»). Обновляется каждые 2 с.
 import { icon } from '../../art/icons';
-import { voteRank, voteScore, type VoteState } from '../../core/vote';
+import { teamColor, voteRank, voteScore, type VoteState } from '../../core/vote';
 import { $, el, esc, fmt } from '../../lib/dom';
 import type { App } from '../app';
 
 /** Число плавно «добегает» до нового значения. */
-function countTo(node: HTMLElement, to: number, signed = false) {
+function countTo(node: HTMLElement, to: number, signed = false, pre = '') {
   const from = Number(node.dataset.n ?? '0');
   node.dataset.n = String(to);
-  if (from === to) { node.textContent = (signed && to > 0 ? '+' : '') + fmt(to); return; }
+  if (from === to) { node.textContent = pre + (signed && to > 0 ? '+' : '') + fmt(to); return; }
   const t0 = performance.now(), dur = 700;
   const step = (now: number) => {
     const p = Math.min(1, (now - t0) / dur);
     const v = Math.round(from + (to - from) * (1 - Math.pow(1 - p, 3)));
-    node.textContent = (signed && v > 0 ? '+' : '') + fmt(v);
+    node.textContent = pre + (signed && v > 0 ? '+' : '') + fmt(v);
     if (p < 1) requestAnimationFrame(step);
   };
   requestAnimationFrame(step);
@@ -28,13 +27,24 @@ export function openVoteBoard(app: App) {
       <div class="row" style="gap:14px"><div class="vb-status" data-status></div><button class="btn btn-ghost btn-sm" data-x aria-label="Закрыть">${icon('x', 18)}</button></div></div>
     <div class="vb-hero hidden" data-hero></div>
     <div class="vb-list" data-list></div>
-    <div class="vb-foot"><span data-voters></span><span class="muted">Голосуй в игре: кнопка «Голосование» на базе · за свою команду нельзя</span></div>
+    <div class="vb-foot"><span data-voters></span><span class="muted">Голосуй в игре: кнопка «Голосование» на базе — ✅ или ❌ каждой команде, за свою нельзя</span></div>
     <div class="vb-fx" data-fx></div>
   </div>`);
   const list = $(node, '[data-list]');
   const hero = $(node, '[data-hero]');
   const rows = new Map<string, HTMLElement>();
+  const seen = new Map<string, [number, number]>();
   let revealed = false;
+  /** Новые голоса взлетают значками ✅ / ❌ от полосы команды. */
+  const fly = (from: HTMLElement, mark: string, n: number) => {
+    const fx = $(node, '[data-fx]').getBoundingClientRect();
+    const r = from.getBoundingClientRect();
+    for (let i = 0; i < Math.min(6, n); i++) {
+      const p = el(`<i class="vb-fly" style="left:${r.left - fx.left + r.width * (0.2 + Math.random() * 0.6)}px;top:${r.top - fx.top + r.height / 2}px;--dx:${(Math.random() * 2 - 1) * 40}px;--d:${(i * 0.12).toFixed(2)}s">${mark}</i>`);
+      $(node, '[data-fx]').appendChild(p);
+      setTimeout(() => p.remove(), 1800);
+    }
+  };
 
   const confetti = () => {
     const fx = $(node, '[data-fx]');
@@ -59,9 +69,8 @@ export function openVoteBoard(app: App) {
     if (cur) {
       if (hero.dataset.id !== cur.id) {
         hero.dataset.id = cur.id;
-        const f = cur.faction ? factionById(cur.faction) : null;
-        hero.innerHTML = `<div class="vb-hname" style="--tc:${f?.color ?? '#ffc83d'}">${esc(cur.name)}</div>
-          <div class="vb-hnums"><div class="vb-hz"><span>За</span><b data-hz>0</b></div><div class="vb-hp"><span>Против</span><b data-hp>0</b></div></div>
+        hero.innerHTML = `<div class="vb-hname" style="--tc:${teamColor(s.teams, cur.id)}">${esc(cur.name)}</div>
+          <div class="vb-hnums"><div class="vb-hz"><span>✅</span><b data-hz>0</b></div><div class="vb-hp"><span>❌</span><b data-hp>0</b></div></div>
           <div class="vb-split"><i data-sz></i><i data-sp></i></div>`;
       }
       countTo($(hero, '[data-hz]'), cur.za);
@@ -75,9 +84,8 @@ export function openVoteBoard(app: App) {
     ranked.forEach((t, i) => {
       let r = rows.get(t.id);
       if (!r) {
-        const f = t.faction ? factionById(t.faction) : null;
-        r = el(`<div class="vb-row" style="--tc:${f?.color ?? '#7ea8ff'}"><b class="vb-n"></b><div class="vb-name">${esc(t.name)}</div>
-          <div class="vb-bars"><div class="vb-bp"><i></i><span data-p>0</span></div><div class="vb-bz"><i></i><span data-z>0</span></div></div>
+        r = el(`<div class="vb-row" style="--tc:${teamColor(s.teams, t.id)}"><b class="vb-n"></b><div class="vb-name">${esc(t.name)}</div>
+          <div class="vb-bars"><div class="vb-bp"><i></i><span data-p>❌ 0</span></div><div class="vb-bz"><i></i><span data-z>✅ 0</span></div></div>
           <b class="vb-score" data-s>0</b></div>`);
         rows.set(t.id, r);
         list.appendChild(r);
@@ -89,14 +97,18 @@ export function openVoteBoard(app: App) {
       r.classList.toggle('dim', s.reveal && i > 2);
       (r.querySelector('.vb-bz i') as HTMLElement).style.width = `${(t.za / max) * 100}%`;
       (r.querySelector('.vb-bp i') as HTMLElement).style.width = `${(t.protiv / max) * 100}%`;
-      countTo(r.querySelector<HTMLElement>('[data-z]')!, t.za);
-      countTo(r.querySelector<HTMLElement>('[data-p]')!, t.protiv);
+      countTo(r.querySelector<HTMLElement>('[data-z]')!, t.za, false, '✅ ');
+      countTo(r.querySelector<HTMLElement>('[data-p]')!, t.protiv, false, '❌ ');
+      const [pz, pp] = seen.get(t.id) ?? [t.za, t.protiv];
+      if (t.za > pz) fly(r.querySelector<HTMLElement>('.vb-bz')!, '✅', t.za - pz);
+      if (t.protiv > pp) fly(r.querySelector<HTMLElement>('.vb-bp')!, '❌', t.protiv - pp);
+      seen.set(t.id, [t.za, t.protiv]);
       countTo(r.querySelector<HTMLElement>('[data-s]')!, voteScore(t), true);
     });
     for (const [id, r] of rows) if (!s.teams.some((t) => t.id === id)) { r.remove(); rows.delete(id); }
     if (s.reveal && !revealed && ranked[0]) {
       revealed = true;
-      const w = el(`<div class="vb-winner"><div class="vb-kicker">Лучшая команда</div><div class="vb-wname">${esc(ranked[0].name)}</div><div class="vb-wsc">за ${fmt(ranked[0].za)} · против ${fmt(ranked[0].protiv)}</div></div>`);
+      const w = el(`<div class="vb-winner"><div class="vb-kicker">Лучшая команда</div><div class="vb-wname">${esc(ranked[0].name)}</div><div class="vb-wsc">✅ ${fmt(ranked[0].za)} · ❌ ${fmt(ranked[0].protiv)}</div></div>`);
       $(node, '[data-fx]').appendChild(w);
       setTimeout(() => w.classList.add('out'), 6500);
       setTimeout(() => w.remove(), 7300);

@@ -14,6 +14,7 @@ import { $, el, esc, fmt, onAct, toast } from '../../lib/dom';
 import type { App } from '../app';
 import { openProjector } from './projector';
 import { openVoteBoard } from './voteboard';
+import { openCasinoBoard } from '../../games/wheel';
 import { VOTE_DEFAULT_TITLE, defaultVoteTeams, parseVoteTeams, voteRank, voteScore, type VoteAction, type VoteState } from '../../core/vote';
 import { drawQrStation } from './qrstation';
 import { STAFF_TOUR, maybeStaffTour, runTour } from '../tour';
@@ -231,27 +232,36 @@ export function openStaff(app: App) {
       const ranked = v ? voteRank(v.teams) : [];
       const st = !v ? 'нет связи' : v.reveal ? 'итог показан на экране' : v.status === 'open' ? (v.current ? `идёт: на сцене ${esc(v.teams.find((t) => t.id === v!.current)?.name ?? '')}` : 'идёт: за все команды сразу') : v.status === 'closed' ? 'закрыто' : 'ещё не открыто';
       body.innerHTML = `<div class="card col" style="gap:8px"><div class="row"><b class="grow">${esc(v?.title ?? VOTE_DEFAULT_TITLE)}</b><span class="tag" style="background:${v?.status === 'open' ? '#2fbf7144' : '#ffffff14'}">${st}</span></div>
-          <div class="small muted">Участники голосуют в игре кнопкой на базе: каждой команде «за» или «против», за свою (своё ПБ) нельзя, передумать можно, пока открыто. Итог = за − против.</div>
+          <div class="small muted">Включить можно в любой момент. Участники голосуют в игре кнопкой на базе: каждой команде ✅ или ❌, за свою нельзя, передумать можно, пока открыто. Итог = ✅ − ❌. В команду человек вписывается сам: ФИО + команда (можно записать и товарища).</div>
           <button class="btn btn-gold btn-block" data-act="vscreen">${icon('trophy', 18)} На экран в зале</button>
           <div class="row" style="gap:8px;flex-wrap:wrap">
             <button class="btn btn-green btn-sm grow" data-act="vctl" data-a="open">Открыть для всех</button>
             <button class="btn btn-ghost btn-sm grow" data-act="vctl" data-a="close">Закрыть</button>
             <button class="btn btn-blue btn-sm grow" data-act="vctl" data-a="${v?.reveal ? 'hide' : 'reveal'}">${v?.reveal ? 'Скрыть итог' : 'Показать итог'}</button></div></div>
         <div class="section-h">Счёт вживую · проголосовали ${fmt(v?.voters ?? 0)}</div>
-        <div class="list">${ranked.map((t, i) => `<div class="li ${v?.current === t.id ? 'me' : ''}"><b style="width:22px">${i + 1}</b><div class="grow"><b>${esc(t.name)}</b><div class="small muted">за ${t.za} · против ${t.protiv} · итог <b class="gold">${voteScore(t) > 0 ? '+' : ''}${voteScore(t)}</b></div></div>
+        <div class="list">${ranked.map((t, i) => `<div class="li ${v?.current === t.id ? 'me' : ''}"><b style="width:22px">${i + 1}</b><div class="grow"><b>${esc(t.name)}</b><div class="small muted">✅ ${t.za} · ❌ ${t.protiv} · итог <b class="gold">${voteScore(t) > 0 ? '+' : ''}${voteScore(t)}</b> · в команде ${t.size ?? 0}</div></div>
           <button class="btn btn-ghost btn-sm" data-act="vctl" data-a="open" data-t="${esc(t.id)}">${v?.current === t.id ? 'На сцене' : 'Голосуем'}</button></div>`).join('') || '<div class="small muted">Команд пока нет</div>'}</div>
         <div class="card col" style="gap:8px"><b>Новое голосование</b>
           <input class="input-ans" data-vtitle maxlength="60" value="${esc(v?.title ?? VOTE_DEFAULT_TITLE)}" placeholder="Название">
-          <div class="small muted">Команды — по строке. Название профбюро (ИРЭ, ГПИ…) привязывает команду к нему: её участники за неё не голосуют.</div>
+          <div class="small muted">Команды — по строке, названия любые. Переименование и порядок строк сохраняют, кто в какой команде; голоса обнуляются.</div>
           <textarea class="textarea" data-vteams rows="6">${esc(teamsText)}</textarea>
-          <div class="row" style="gap:8px"><button class="btn btn-gold grow" data-act="vsetup">Начать новое (голоса обнулятся)</button><button class="btn btn-ghost btn-sm" data-act="vctl" data-a="reset">Обнулить голоса</button></div></div>`;
+          <div class="row" style="gap:8px"><button class="btn btn-gold grow" data-act="vsetup">Сохранить команды (голоса обнулятся)</button><button class="btn btn-ghost btn-sm" data-act="vctl" data-a="reset">Обнулить голоса</button></div></div>
+        <div class="section-h">Составы команд</div><div class="col" style="gap:6px" data-vmembers><div class="small muted">Загрузка…</div></div>`;
+      drawMembers();
+    };
+    const drawMembers = async () => {
+      const box = body.querySelector<HTMLElement>('[data-vmembers]');
+      if (!box) return;
+      const ms = await app.backend.staffVoteMembers().catch(() => []);
+      box.innerHTML = ms.map((t) => `<details class="card"><summary><b>${esc(t.name)}</b> · ${t.people.length} чел.</summary>
+        ${t.people.map((p) => `<div class="row small" style="gap:6px;margin-top:4px"><span class="grow">${esc(p.name)}</span><button class="btn btn-ghost btn-sm" data-act="vkick" data-r="${esc(String(p.id))}">Убрать</button></div>`).join('') || '<div class="small muted">Пока никто не вписался</div>'}</details>`).join('') || '<div class="small muted">Команд пока нет</div>';
     };
     render();
     const t = window.setInterval(async () => {
       if (!body.isConnected || tab !== 'vote') return;
       const fresh = await app.backend.voteState().catch(() => null);
       // не перерисовываем, пока организатор печатает в форме
-      if (fresh && !body.contains(document.activeElement as Node)) { v = fresh; render(); } else if (fresh) v = fresh;
+      if (fresh && !body.contains(document.activeElement as Node) && !body.querySelector('details[open]')) { v = fresh; render(); } else if (fresh) v = fresh;
     }, 2500);
     stopTimer = () => clearInterval(t);
   };
@@ -307,10 +317,19 @@ export function openStaff(app: App) {
         <div class="small muted">Если выбран человек — только он открывает QR-отметки на блоках и пользуется «Начислить / Снять». «Я — скорость» и «Проверка» сдач остаются у всех организаторов.</div>
         ${app.backend.admin ? `<select class="input-ans" data-host><option value="">Все организаторы</option></select>` : `<div><b class="gold">${c.checkinHost ? esc(c.checkinHost.name) : 'Все организаторы'}</b></div>`}</div>
       <button class="btn btn-gold btn-block" data-act="screen">${icon('trophy', 18)} Экран для актового</button>
+      <div class="card col" style="gap:6px"><b>Колесо профкома — урок «казино всегда выигрывает»</b>
+        <div class="small muted">Колесо подкручено: ×10 не выпадает никогда, первая ставка выигрывает, после выигрыша — проигрыш, после 3–5 проигрышей — подачка ×2, стрелка замирает на ×10. В среднем участник теряет около трети ставок.</div>
+        <div class="small" data-cstats>Считаю…</div>
+        <label class="row" style="gap:10px"><input type="checkbox" data-set="casino_reveal" ${c.casinoReveal ? 'checked' : ''}><div class="grow"><b>Разоблачение</b><div class="small muted">Включить — каждый, кто откроет колесо, увидит, как его подкручивали и сколько он проиграл.</div></div></label>
+        <button class="btn btn-blue btn-block" data-act="cscreen">${icon('trophy', 18)} Итог казино — на экран</button></div>
       ${app.backend.admin ? `<div class="card col danger-zone" style="gap:8px"><b>Начать всё заново</b>
         <div class="small muted">Обнулит у всех баллы, сдачи, QR-отметки, заказы мерча (вернутся на склад), карту, здания ПБ <b>и регистрации</b>: все, включая организаторов и тебя, войдут заново по ФИО. Список выезда, роли, задания, вопросы и мерч останутся.</div>
         <input class="input-ans" data-reset-word placeholder="Впиши слово СБРОС" autocomplete="off">
         <button class="btn btn-red btn-block" data-act="reset-all" disabled>${icon('bolt', 18)} Сбросить всё</button></div>` : ''}`;
+    app.backend.casinoStats().then((a) => {
+      const el2 = body.querySelector('[data-cstats]');
+      if (el2 && a) el2.innerHTML = a.spins ? `Крутили ${fmt(a.players)} чел., ${fmt(a.spins)} вращений: поставили ${fmt(a.bet)}, вернулось ${fmt(a.won)} — казино в плюсе на <b class="gold">${fmt(a.bet - a.won)}</b>.` : 'Пока никто не крутил.';
+    }).catch(() => {});
     const hostSel = body.querySelector<HTMLSelectElement>('[data-host]');
     if (hostSel) {
       const staffRows = app.backend.mode === 'demo'
@@ -334,7 +353,7 @@ export function openStaff(app: App) {
       } catch (e) { toast((e as Error).message, 'bad'); resetBtn.disabled = false; }
     });
     body.querySelectorAll<HTMLInputElement>('[data-set]').forEach((i) => i.addEventListener('change', async () => {
-      await app.backend.staffSetSetting(i.dataset.set as 'shop_open' | 'require_group', i.checked).catch((e: Error) => toast(e.message, 'bad'));
+      await app.backend.staffSetSetting(i.dataset.set as 'shop_open' | 'require_group' | 'casino_reveal', i.checked).catch((e: Error) => toast(e.message, 'bad'));
       app.cfg = await app.backend.config();
       toast('Сохранено', 'ok');
     }));
@@ -426,6 +445,11 @@ export function openStaff(app: App) {
     iss: async (t) => { await app.backend.staffOrderSet(t.dataset.id!, 'issued').catch((e: Error) => toast(e.message, 'bad')); haptic('ok'); toast('Выдано', 'ok'); drawIssue(); },
     icancel: async (t) => { await app.backend.staffOrderSet(t.dataset.id!, 'cancelled').catch((e: Error) => toast(e.message, 'bad')); toast('Заказ отменён, баллы и товар вернулись', 'info'); drawIssue(); },
     vscreen: () => openVoteBoard(app),
+    vkick: async (t) => {
+      if (!confirmTap(t, 'Точно?')) return;
+      try { app.vote = await app.backend.staffVoteKick(t.dataset.r!); toast('Убран из команды', 'info'); drawVote(); } catch (e) { toast((e as Error).message, 'bad'); }
+    },
+    cscreen: () => openCasinoBoard(app),
     vctl: async (t) => {
       const a = t.dataset.a as VoteAction;
       if (a === 'reset' && !confirmTap(t, 'Точно обнулить?')) return;
@@ -437,10 +461,10 @@ export function openStaff(app: App) {
       } catch (e) { toast((e as Error).message, 'bad'); }
     },
     vsetup: async (t) => {
-      if (!confirmTap(t, 'Нажми ещё раз — голоса обнулятся')) return;
+      if (!confirmTap(t, 'Ещё раз — голоса обнулятся')) return;
       const title = ($(body, '[data-vtitle]') as HTMLInputElement).value;
       const teams = parseVoteTeams(($(body, '[data-vteams]') as HTMLTextAreaElement).value);
-      try { app.vote = await app.backend.staffVoteSetup(title, teams); toast(`Новое голосование: ${teams.length} команд`, 'ok'); drawVote(); } catch (e) { toast((e as Error).message, 'bad'); }
+      try { app.vote = await app.backend.staffVoteSetup(title, teams); toast(`Команд: ${teams.length}, голоса обнулены`, 'ok'); drawVote(); } catch (e) { toast((e as Error).message, 'bad'); }
     },
     lpost: async () => {
       const text = ($(body, '[data-lt]') as HTMLTextAreaElement).value.trim();
@@ -484,7 +508,7 @@ const GUIDE: [string, string[]][] = [
   ['Начислить или снять баллы', ['«Начислить» → найди участника по фамилии → выбери, за что → сколько баллов → «Начислить». Начисляется ровно введённое число.', '«Снять» — убрать баллы (не ниже нуля): за нарушение или ошибочное начисление. Напиши причину — участник её увидит.', 'Для активности на блоке, лучшего вопроса, помощи, конкурсов ведущего.']],
   ['Мерч и выдача', ['«Мерч»: цены, остатки, скидки. Вверху — хватает ли баллов активному участнику на весь набор.', '«Настройки» → «Магазин мерча открыт» — когда решите открыть покупки.', '«Выдача»: участник показывает «Мой QR» → «Сканировать QR» → «Выдать».', 'Ошиблись — «Отмена»: товар и баллы вернутся.']],
   ['Эфир и экран', ['«Эфир»: сообщение всем — вверху базы у каждого и на экране зала.', 'Кнопка «Экран» — на ноутбук у проектора: рейтинг ПБ, эфир, QR открытой отметки.']],
-  ['Голосование «Работа со спонсорами»', ['«Голосование» → проверь название и команды (по умолчанию 10 профбюро) → «Начать новое».', '«На экран в зале» — на ноутбук у проектора: «за» и «против» растут вживую, места переставляются.', 'Выступает команда — «Голосуем» в её строке: на экране она крупно, участники оценивают только её. «Открыть для всех» — оценить все команды сразу.', 'В конце — «Закрыть», потом «Показать итог»: на экране лучшая команда. Баллы победителям — «Начислить» → «Лучший питч».']],
+  ['Голосование «Работа со спонсорами»', ['«Голосование» → впиши названия команд (по строке) → «Сохранить команды». Участники сами вписываются: ФИО + команда; составы — внизу вкладки.', '«На экран в зале» — на ноутбук у проектора: «за» и «против» растут вживую, места переставляются.', 'Выступает команда — «Голосуем» в её строке: на экране она крупно, участники оценивают только её (✅ или ❌). «Открыть для всех» — оценить все команды сразу.', 'В конце — «Закрыть», потом «Показать итог»: на экране лучшая команда. Баллы победителям — «Начислить» → «Лучший питч».']],
   ['Карта и мероприятия', ['«Карта»: «Провести раунд сейчас» — для финала или теста.', 'Запустить мероприятие вручную — если расписание сдвинулось.']],
   ['Участники', ['«Участники»: список выезда по ПБ, кто вошёл.', '«Сброс» — если человек сменил телефон или вошёл под чужим ФИО. Прогресс сохраняется.']],
 ];

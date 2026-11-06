@@ -1,4 +1,5 @@
 import type { FactionId } from '../config/factions';
+import { newCasino, type CasinoState } from './casino';
 import { STARTER_HEROES } from '../config/heroes';
 import { SQUAD_SIZE } from '../config/economy';
 import type { Order } from './world';
@@ -75,6 +76,10 @@ export interface GameState {
   items: ItemInst[];
   equip: Partial<Record<Slot, string>>;
   createdAt: number;
+  /** Колесо профкома: ставки, выигрыши, «почти» — для разоблачения */
+  casino: CasinoState;
+  /** Поединки в правовухе, за которые уже начислены профкоины */
+  duelsPaid: string[];
 }
 
 export const mskDay = (t = Date.now()) => new Date(t + 3 * 3600_000).toISOString().slice(0, 10);
@@ -123,6 +128,8 @@ export function newState(username = 'Активист'): GameState {
     items: [],
     equip: {},
     createdAt: Date.now(),
+    casino: newCasino(),
+    duelsPaid: [],
   };
 }
 
@@ -139,7 +146,7 @@ export function migrate(raw: unknown): GameState | null {
     clicker: { ...base.clicker, ...(s.clicker ?? {}), lvl: { ...base.clicker.lvl, ...(s.clicker?.lvl ?? {}) }, boosts: { ...base.clicker.boosts, ...(s.clicker?.boosts ?? {}) } },
     shop: { ...base.shop, ...(s.shop ?? {}) }, lectures: s.lectures ?? [], role: s.role ?? 'participant', fio: s.fio ?? '', secret: s.secret ?? '',
     crystals: Math.max(0, Math.floor(s.crystals ?? 0)), skillLv: s.skillLv ?? {}, loadout: Array.isArray(s.loadout) ? s.loadout : base.loadout,
-    items: Array.isArray(s.items) ? s.items : [], equip: s.equip ?? {} } as GameState;
+    items: Array.isArray(s.items) ? s.items : [], equip: s.equip ?? {}, casino: { ...base.casino, ...(s.casino ?? {}) }, duelsPaid: Array.isArray(s.duelsPaid) ? s.duelsPaid : [] } as GameState;
   fitSquad(out, SQUAD_SIZE);
   return out;
 }

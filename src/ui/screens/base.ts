@@ -19,6 +19,7 @@ import { openClan, openUpgrades } from './clan';
 import { openProfile } from './profile';
 import { openStaff } from './staff';
 import { openVote } from './vote';
+import { isMine } from '../../core/vote';
 import { openHelp } from '../tour';
 
 const KIND_ICON = { info: 'info', alert: 'bolt', win: 'trophy' } as const;
@@ -192,14 +193,19 @@ export function renderBase(app: App) {
   const voteEl = $(node, '[data-vote]');
   const drawVote = () => {
     const v = app.vote;
-    const show = !!v && v.teams.length > 0 && (v.status === 'open' || v.reveal);
+    const myTeam = v?.myTeam ? v.teams.find((t) => t.id === v.myTeam) : null;
+    // команды заведены — можно вписаться заранее; дальше — голосование и итог
+    const show = !!v && v.teams.length > 0 && (v.status !== 'closed' || v.reveal || !!myTeam);
     voteEl.classList.toggle('hidden', !show);
     if (!show || !v) return;
     const cur = v.current ? v.teams.find((t) => t.id === v.current)?.name : null;
-    const left = v.teams.filter((t) => (!v.current || t.id === v.current) && !(t.faction && t.faction === v.myFaction) && !v.my[t.id]).length;
+    const left = v.teams.filter((t) => (!v.current || t.id === v.current) && !isMine(v, t) && !v.my[t.id]).length;
     voteEl.innerHTML = v.reveal
       ? `${icon('trophy', 16, '#ffd76a')}<span>${esc(v.title)}: итоги — смотри, кто лучший</span>`
-      : `<i class="vb-dot"></i><span>Голосование «${esc(v.title)}»${cur ? `: сейчас ${esc(cur)}` : ''}${left ? ` · оцени ${left}` : ' · твой голос учтён'}</span>`;
+      : v.status === 'open'
+        ? `<i class="vb-dot"></i><span>Голосование «${esc(v.title)}»${cur ? `: выступает ${esc(cur)}` : ''}${left ? ` · оцени ✅ ❌ — ${left}` : ' · твой голос учтён'}</span>`
+        : myTeam ? `${icon('users', 16)}<span>${esc(v.title)}: твоя команда — <b>${esc(myTeam.name)}</b>. Найди своих</span>`
+        : `${icon('users', 16)}<span>${esc(v.title)}: впиши себя в свою команду — ФИО и команда</span>`;
   };
   voteEl.addEventListener('vote', drawVote);
   drawVote();

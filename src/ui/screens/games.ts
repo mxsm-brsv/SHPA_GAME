@@ -4,6 +4,7 @@ import { MAP_EVENTS } from '../../config/map';
 import { icon } from '../../art/icons';
 import { $, el, esc, fmt, mmss, onAct } from '../../lib/dom';
 import { openGame } from '../../games';
+import { openDuelHub } from '../../games/duel';
 import { eventKey, nextEventInfo, type WorldState } from '../../core/world';
 import type { App } from '../app';
 import { joinEvent } from './map';
@@ -34,6 +35,10 @@ export function renderGames(app: App) {
         <div class="gn">${esc(g.name)}</div>
         ${best(g.id) ? `<div class="gs">рекорд ${fmt(best(g.id))}</div>` : ''}
       </button>`).join('')}
+      <button class="gtile" data-act="duel">
+        <div class="gi" style="background:#a8326e">${icon('swords', 24, '#fff')}</div>
+        <div class="gn">Правовой поединок</div><div class="gs">против участника</div>
+      </button>
     </div>
   </div></div>`);
 
@@ -60,6 +65,7 @@ export function renderGames(app: App) {
 
   onAct(node, {
     play: (t) => openGame(app, t.dataset.id as GameId),
+    duel: () => openDuelHub(app),
     join: () => { if (world) joinEvent(app, world); },
   });
   return node;

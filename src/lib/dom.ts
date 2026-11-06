@@ -49,7 +49,9 @@ export function toast(text: string, kind: 'ok' | 'bad' | 'info' = 'info') {
   t.className = `toast show ${kind}`;
   t.textContent = text;
   clearTimeout(toastTimer);
-  toastTimer = window.setTimeout(() => t!.classList.remove('show'), 2400);
+  // длинное сообщение висит дольше; тап по плашке убирает её сразу
+  toastTimer = window.setTimeout(() => t!.classList.remove('show'), Math.min(5000, 2200 + text.length * 25));
+  t.onclick = () => { clearTimeout(toastTimer); t!.classList.remove('show'); };
 }
 
 /** Модальное окно поверх экрана. Возвращает функцию закрытия. */
