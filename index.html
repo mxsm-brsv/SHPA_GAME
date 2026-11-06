@@ -5,6 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#15173d" />
   <title>Профбюро — игра ШПА МЭИ</title>
+  <script>
+    // t.me/<бот>?startapp=knopka открывает «Кнопку» вместо игры (данные Telegram в адресе сохраняются)
+    (function () {
+      try {
+        var s = location.search + location.hash;
+        if (/tgWebAppStartParam=knopka(&|#|$)/.test(s) || /start_param%3Dknopka(%26|&|$)/.test(s) || /start_param%253Dknopka(%2526|&|$)/.test(s)) {
+          location.replace('knopka/' + location.search + location.hash);
+        }
+      } catch (e) { /* остаёмся в игре */ }
+    })();
+  </script>
 </head>
 <body>
   <div id="app"></div>
