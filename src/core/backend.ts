@@ -8,6 +8,7 @@ import type { GameState, Role } from './state';
 import type { Order, WorldState } from './world';
 import type { VoteAction, VoteState } from './vote';
 import type { RaidHit, RaidState } from './raid';
+import type { CasinoStats } from './casino';
 
 export interface LeaderRow { name: string; faction: FactionId | null; rating: number; contributed: number; power: number; me?: boolean; bot?: boolean }
 export interface FactionRow { faction: FactionId; players: number; limit: number; rating: number; influence: number; xp: number; ratusha: number; score: number }
@@ -46,6 +47,8 @@ export interface GameConfig {
   checkinHost?: { id: number | string; name: string } | null;
   /** Могу ли я открывать отметки на блоках и начислять баллы */
   canCheckin?: boolean;
+  /** Организаторы раскрыли, как подкручено колесо профкома */
+  casinoReveal?: boolean;
 }
 
 export interface Backend {
@@ -133,7 +136,9 @@ export interface Backend {
   staffRoster(): Promise<RosterRow[]>;
   staffRosterImport(text: string): Promise<string>;
   staffRosterReset(id: string): Promise<string>;
-  staffSetSetting(key: 'shop_open' | 'require_group', value: boolean): Promise<void>;
+  staffSetSetting(key: 'shop_open' | 'require_group' | 'casino_reveal', value: boolean): Promise<void>;
+  /** Общий итог колеса профкома (после разоблачения — всем, до него — организаторам). */
+  casinoStats(): Promise<CasinoStats | null>;
   /** Админ: кто отмечает (id строки списка выезда) или null — все организаторы. */
   staffSetCheckinHost(rosterId: string | null): Promise<GameConfig>;
   /** Только админ: обнулить прогресс всех (подтверждение — слово «СБРОС»). */

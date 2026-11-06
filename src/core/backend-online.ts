@@ -13,6 +13,7 @@ import { telegram } from './telegram';
 import { newWorld, payWarCoins, type Order, type WorldState } from './world';
 import type { VoteAction, VoteState } from './vote';
 import type { RaidHit, RaidState } from './raid';
+import type { CasinoStats } from './casino';
 import { SKIRMISH_WIN_COINS } from '../config/economy';
 import { fetchLiveJson, parseMerchLines, parseRosterLines } from './backend-demo';
 import type {
@@ -356,7 +357,8 @@ export class OnlineBackend implements Backend {
     return this.rpc<string>('staff_roster_import', { p_rows: rows });
   }
   async staffRosterReset(id: string) { return this.rpc<string>('staff_roster_reset', { p_id: id }); }
-  async staffSetSetting(key: 'shop_open' | 'require_group', value: boolean) { await this.rpc('staff_set_setting', { p_key: key, p_value: value }); this.cfg = null; }
+  async staffSetSetting(key: 'shop_open' | 'require_group' | 'casino_reveal', value: boolean) { await this.rpc('staff_set_setting', { p_key: key, p_value: value }); this.cfg = null; }
+  async casinoStats() { return await this.rpc<CasinoStats>('casino_stats'); }
   async staffSetCheckinHost(rosterId: string | null) { this.cfg = await this.rpc<GameConfig>('staff_set_checkin_host', { p_roster: rosterId === null ? null : Number(rosterId) }); return this.cfg; }
   async adminResetProgress(confirm: string) {
     const r = await this.rpc<{ players: number; submissions: number; orders: number; qr: number; epoch: number; registrations?: number }>('admin_reset_progress', { p_confirm: confirm });

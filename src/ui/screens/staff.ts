@@ -14,6 +14,7 @@ import { $, el, esc, fmt, onAct, toast } from '../../lib/dom';
 import type { App } from '../app';
 import { openProjector } from './projector';
 import { openVoteBoard } from './voteboard';
+import { openCasinoBoard } from '../../games/wheel';
 import { VOTE_DEFAULT_TITLE, defaultVoteTeams, parseVoteTeams, voteRank, voteScore, type VoteAction, type VoteState } from '../../core/vote';
 import { drawQrStation } from './qrstation';
 import { STAFF_TOUR, maybeStaffTour, runTour } from '../tour';
@@ -307,10 +308,19 @@ export function openStaff(app: App) {
         <div class="small muted">Если выбран человек — только он открывает QR-отметки на блоках и пользуется «Начислить / Снять». «Я — скорость» и «Проверка» сдач остаются у всех организаторов.</div>
         ${app.backend.admin ? `<select class="input-ans" data-host><option value="">Все организаторы</option></select>` : `<div><b class="gold">${c.checkinHost ? esc(c.checkinHost.name) : 'Все организаторы'}</b></div>`}</div>
       <button class="btn btn-gold btn-block" data-act="screen">${icon('trophy', 18)} Экран для актового</button>
+      <div class="card col" style="gap:6px"><b>Колесо профкома — урок «казино всегда выигрывает»</b>
+        <div class="small muted">Колесо подкручено: ×10 не выпадает никогда, первая ставка выигрывает, после выигрыша — проигрыш, после 3–5 проигрышей — подачка ×2, стрелка замирает на ×10. В среднем участник теряет около трети ставок.</div>
+        <div class="small" data-cstats>Считаю…</div>
+        <label class="row" style="gap:10px"><input type="checkbox" data-set="casino_reveal" ${c.casinoReveal ? 'checked' : ''}><div class="grow"><b>Разоблачение</b><div class="small muted">Включить — каждый, кто откроет колесо, увидит, как его подкручивали и сколько он проиграл.</div></div></label>
+        <button class="btn btn-blue btn-block" data-act="cscreen">${icon('trophy', 18)} Итог казино — на экран</button></div>
       ${app.backend.admin ? `<div class="card col danger-zone" style="gap:8px"><b>Начать всё заново</b>
         <div class="small muted">Обнулит у всех баллы, сдачи, QR-отметки, заказы мерча (вернутся на склад), карту, здания ПБ <b>и регистрации</b>: все, включая организаторов и тебя, войдут заново по ФИО. Список выезда, роли, задания, вопросы и мерч останутся.</div>
         <input class="input-ans" data-reset-word placeholder="Впиши слово СБРОС" autocomplete="off">
         <button class="btn btn-red btn-block" data-act="reset-all" disabled>${icon('bolt', 18)} Сбросить всё</button></div>` : ''}`;
+    app.backend.casinoStats().then((a) => {
+      const el2 = body.querySelector('[data-cstats]');
+      if (el2 && a) el2.innerHTML = a.spins ? `Крутили ${fmt(a.players)} чел., ${fmt(a.spins)} вращений: поставили ${fmt(a.bet)}, вернулось ${fmt(a.won)} — казино в плюсе на <b class="gold">${fmt(a.bet - a.won)}</b>.` : 'Пока никто не крутил.';
+    }).catch(() => {});
     const hostSel = body.querySelector<HTMLSelectElement>('[data-host]');
     if (hostSel) {
       const staffRows = app.backend.mode === 'demo'
@@ -334,7 +344,7 @@ export function openStaff(app: App) {
       } catch (e) { toast((e as Error).message, 'bad'); resetBtn.disabled = false; }
     });
     body.querySelectorAll<HTMLInputElement>('[data-set]').forEach((i) => i.addEventListener('change', async () => {
-      await app.backend.staffSetSetting(i.dataset.set as 'shop_open' | 'require_group', i.checked).catch((e: Error) => toast(e.message, 'bad'));
+      await app.backend.staffSetSetting(i.dataset.set as 'shop_open' | 'require_group' | 'casino_reveal', i.checked).catch((e: Error) => toast(e.message, 'bad'));
       app.cfg = await app.backend.config();
       toast('Сохранено', 'ok');
     }));
@@ -426,6 +436,7 @@ export function openStaff(app: App) {
     iss: async (t) => { await app.backend.staffOrderSet(t.dataset.id!, 'issued').catch((e: Error) => toast(e.message, 'bad')); haptic('ok'); toast('Выдано', 'ok'); drawIssue(); },
     icancel: async (t) => { await app.backend.staffOrderSet(t.dataset.id!, 'cancelled').catch((e: Error) => toast(e.message, 'bad')); toast('Заказ отменён, баллы и товар вернулись', 'info'); drawIssue(); },
     vscreen: () => openVoteBoard(app),
+    cscreen: () => openCasinoBoard(app),
     vctl: async (t) => {
       const a = t.dataset.a as VoteAction;
       if (a === 'reset' && !confirmTap(t, 'Точно обнулить?')) return;
