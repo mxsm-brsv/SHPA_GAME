@@ -27,7 +27,7 @@ select pg_temp.ok((select count(*) from bz_teams where active) = 10, '10 про�
 
 \echo '--- выбор команды: одна команда — один капитан'
 -- с v9 профбюро берётся из списка выезда (вход по ФИО); здесь — сразу проставляем, механику входа проверяет v9
-update bz_clients set team_id = case ident when 'tg:1001' then :t1 when 'tg:1002' then :t1 when 'tg:1003' then :t3 else :t4 end, team_src = 'host';
+update bz_clients set team_id = case ident when 'tg:1001' then :t1 when 'tg:1002' then :t1 when 'tg:1003' then :t3 else :t4 end, team_src = 'host' where true;
 select pg_temp.ok(bz_claim(:'ta', :t1)->>'ok' = 'true', 'Аня берёт команду 1');
 select pg_temp.ok(bz_claim(:'tb', :t1)->>'error' like '%уже жмёт Аня%', 'Борису команда 1 уже занята');
 select pg_temp.ok(bz_claim(:'ta', :t4)->>'error' like '%только за свою%', 'Аня не может жать за чужую команду 4');

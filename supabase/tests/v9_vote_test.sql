@@ -15,7 +15,7 @@ select bz_host_login(setting_text('staff_code', ''), 'v9')->>'token' as th \gset
 select setting_text('staff_code', '') as staff \gset
 select bz_host(:'th', 'teams', '{"names": ["ГПИ","ИВТИ","ИГВИЭ","ИнЭИ","ИРЭ","ИТАЭ","ИЭВТ","ИЭТЭ","ИЭЭ","ЭнМИ"]}') is not null;
 select bz_host(:'th', 'release_all') is not null;
-delete from bz_clients; -- после v8 в базе остались его телефоны
+delete from bz_clients where true; -- после v8 в базе остались его телефоны
 select pg_temp.ok((select string_agg(coalesce(code, '?'), ',' order by num) from bz_teams where active) = 'gpi,ivti,igvie,inei,ire,itae,ievt,iete,iee,enmi',
   'у всех 10 команд есть код профбюро');
 select pg_temp.ok(_bz_code('Профбюро ИРЭ') = 'ire' and _bz_code('иэтэ') = 'iete' and _bz_code('ИЭЭ!') = 'iee' and _bz_code('Команда мечты') is null,

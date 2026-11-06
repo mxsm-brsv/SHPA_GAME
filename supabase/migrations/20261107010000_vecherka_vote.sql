@@ -1,4 +1,4 @@
--- v9: вечерка в отдельном боте + «Приз зрительских симпатий».
+-- Вечерка (v9 кнопки): отдельный бот + «Приз зрительских симпатий».
 -- 1. Вечерка — только для участников выезда. Каждый входит по ФИО и группе из списка выезда (как в игре ШПА,
 --    но отдельно от неё): профбюро берётся из списка (roster.faction). Одна строка списка — один телефон;
 --    сбросить вход может ведущий. Оргкомитет входит по ФИО и коду организатора: кнопку не жмёт,
@@ -6,6 +6,7 @@
 -- 2. Кнопку за команду жмёт один человек из этой команды (bz_teams.captain) — выбирают сами или ведущий.
 -- 3. Голосование за клипы: один голос на человека из списка, за клип своего профбюро нельзя, передумать можно,
 --    пока голосование открыто.
+-- В Supabase запросы из приложения идут через safeupdate: UPDATE/DELETE по всей таблице — только с явным «where true».
 
 alter table public.bz_teams add column if not exists code text;
 alter table public.bz_clients add column if not exists roster_id bigint unique references public.roster(id) on delete set null;
@@ -524,7 +525,7 @@ begin
 
   elsif p_act = 'new_game' then
     update bz_game set round_id = null where id = 1;
-    delete from bz_presses; delete from bz_rounds; delete from bz_adjust;
+    delete from bz_presses where true; delete from bz_rounds where true; delete from bz_adjust where true;
 
   elsif p_act = 'host_code' then
     code := _bz_norm_code(a->>'code');
@@ -544,7 +545,7 @@ begin
     update bz_game set vote_status = vv where id = 1;
 
   elsif p_act = 'vote_reset' then
-    delete from bz_votes;
+    delete from bz_votes where true;
     update bz_game set vote_status = 'off' where id = 1;
 
   elsif p_act = 'clips' then
@@ -553,7 +554,7 @@ begin
     if jsonb_typeof(a->'items') <> 'array' or jsonb_array_length(a->'items') < 1 or jsonb_array_length(a->'items') > 40 then
       return jsonb_build_object('error', 'Нужно от 1 до 40 клипов');
     end if;
-    delete from bz_clips;
+    delete from bz_clips where true;
     i := 0;
     for it in select * from jsonb_array_elements(a->'items') loop
       i := i + 1;
