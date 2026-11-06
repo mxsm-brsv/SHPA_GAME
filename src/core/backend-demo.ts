@@ -284,6 +284,7 @@ export class DemoBackend implements Backend {
   }
 
   async redeemCode(s: GameState, raw: string): Promise<SubmitResult> {
+    if (/startapp=t_/.test(raw)) return { status: 'rejected', message: 'Печатные QR тайников работают в настоящей игре. В демо — коды CACHE-01…CACHE-10' };
     const up = raw.trim().toUpperCase();
     const egg = DEMO_EGG_CODES[up];
     if (egg) {

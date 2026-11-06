@@ -115,6 +115,15 @@ export class App {
     this.startParam = '';
     const dm = p.match(/^duel_([A-Za-z0-9]{5})$/);
     if (dm) { const { openDuelHub } = await import('../games/duel'); if (!this.questions.length) this.questions = await this.backend.getQuestions().catch(() => []); openDuelHub(this, { code: dm[1] }); return; }
+    // печатный QR: тайник или «Я — скорость» (t.me/бот?startapp=t_КОД)
+    const tm = p.match(/^t_([A-Za-z0-9]+)$/);
+    if (tm) {
+      const r = await this.backend.redeemCode(this.state, `startapp=t_${tm[1]}`);
+      haptic(r.status === 'approved' ? 'ok' : 'bad');
+      toast(r.message, r.status === 'approved' ? 'ok' : 'bad');
+      this.update();
+      return;
+    }
     const m = p.match(/^lec_([A-Za-z0-9]+)$/);
     if (!m) return;
     const r = await this.backend.redeemCode(this.state, `SHPA:L:${m[1]}`);
