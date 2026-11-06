@@ -49,7 +49,7 @@ export const TASKS: TaskDef[] = [
   { id: 'lecture', when: 'На каждом блоке', day: 'both', title: 'Отметиться на блоке: подойди к организатору и отсканируй QR', check: 'qr', how: 'QR на телефоне организатора или на экране; меняется каждые 20 секунд, под ним — код', rating: '15 за блок', amount: 15, limit: 30 },
   { id: 'speed_qr', when: 'Каждый день', day: 'both', title: '«Я — скорость»: найти спрятанный QR дня', check: 'qr', how: 'Организаторы прячут QR на базе; баллы — только первым пяти', rating: '30', amount: 30, limit: 'daily' },
   { id: 'thought', when: 'После блока', day: 'both', title: 'Мысль с блока: особый заказ «Конспект»', check: 'auto', how: 'От 80 символов, до конца дня блока', rating: '20', amount: 20, limit: 8, form: 'thought' },
-  { id: 'egg', when: 'На блоках', day: 'both', title: 'Пасхалка в презентации', check: 'code', how: 'Кодовое слово, до конца дня блока', rating: '15', amount: 15, limit: 20 },
+  { id: 'egg', when: 'На блоках', day: 'both', title: 'Пасхалка в презентации', check: 'code', how: 'Кодовое слово из презентации или со сцены. Некоторые слова живут недолго или только для первых', rating: '15', amount: 15, limit: 50 },
   { id: 'egg_gold', when: 'Раз в день', day: 'both', title: 'Золотая пасхалка', check: 'code', how: 'Кодовое слово', rating: '50', amount: 50, limit: 'daily' },
   { id: 'docs_quiz', when: 'После образовалки', day: 'both', title: 'Квиз по документам', check: 'auto', how: 'Авто, 3 вопроса', rating: 'до 30', amount: 10, limit: 'daily', form: 'quiz' },
   { id: 'case_day', when: 'Каждый день', day: 'both', title: '«Дело дня» — правовая ситуация', check: 'auto', how: 'Авто, раздел «Правовуха»', rating: '20', amount: 20, limit: 'daily' },

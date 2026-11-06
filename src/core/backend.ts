@@ -19,6 +19,8 @@ export interface Submission { id: string; player: string; playerId?: string; fac
 /** Зона дежурства организатора: чтобы не делать одно и то же вдвоём. */
 export type DutyZone = 'mod' | 'qr' | 'merch' | 'live' | 'map' | 'help' | 'free';
 export interface TeamMember { id: string; name: string; role: Role; me: boolean; zone: DutyZone; note: string; at: number; reviewed: number; holding: number; qrOpen: number }
+/** Кодовое слово (пасхалка) в панели организатора. Слова из списка организаторов в базе только отпечатками — у них hidden и подпись вместо текста. */
+export interface CodeWord { id: string; text: string; hidden: boolean; points: number; gold: boolean; max: number | null; expires: number | null; active: boolean; found: number; by: string | null; created: number }
 export interface SubmitResult { status: 'approved' | 'pending' | 'rejected' | 'error'; granted?: number; message: string }
 export interface PlayerRef { id: string; name: string; faction: FactionId | null; rating: number }
 export interface TaskPayload { text?: string; link?: string; photo?: Blob; value?: number; quiz?: string }
@@ -155,6 +157,11 @@ export interface Backend {
   staffVoteMembers(): Promise<{ team: string; name: string; people: { id: string | number; name: string }[] }[]>;
   /** Организатор: убрать человека из команды. */
   staffVoteKick(rosterId: string | number): Promise<VoteState>;
+  /** Кодовые слова: список, добавить в моменте (баллы, первым N, на M минут, золотая), включить/выключить, удалить */
+  staffWords(): Promise<CodeWord[]>;
+  staffWordAdd(word: string, points: number, max: number | null, minutes: number | null, gold: boolean): Promise<CodeWord[]>;
+  staffWordSet(id: string, active: boolean): Promise<CodeWord[]>;
+  staffWordDelete(id: string): Promise<CodeWord[]>;
   // ---- поединки в правовухе ----
   duelCreate(): Promise<Duel>;
   duelJoin(code: string): Promise<Duel>;
