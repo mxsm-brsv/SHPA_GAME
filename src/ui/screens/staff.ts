@@ -6,7 +6,7 @@ import { gameById } from '../../config/minigames';
 import { DEFAULT_AUTO, merchPrice, type MerchItem, type MerchOrder } from '../../config/merch';
 import { economyPlan } from '../../config/economy-plan';
 import { icon, starSvg } from '../../art/icons';
-import type { Announcement, DutyZone, PlayerRef, RosterRow, Submission, TeamMember, UserQuestion } from '../../core/backend';
+import type { Announcement, CodeWord, DutyZone, PlayerRef, RosterRow, Submission, TeamMember, UserQuestion } from '../../core/backend';
 import { rightAnswerText } from '../../core/questions';
 import { haptic } from '../../core/telegram';
 import { canScanAny, scanAny } from '../../lib/scan';
@@ -19,8 +19,8 @@ import { VOTE_DEFAULT_TITLE, defaultVoteTeams, parseVoteTeams, voteRank, voteSco
 import { drawQrStation } from './qrstation';
 import { STAFF_TOUR, maybeStaffTour, runTour } from '../tour';
 
-type Tab = 'team' | 'qr' | 'mod' | 'grant' | 'merch' | 'issue' | 'live' | 'vote' | 'roster' | 'war' | 'set' | 'help';
-const TABS: [Tab, string][] = [['team', 'Команда'], ['qr', 'QR-отметка'], ['mod', 'Проверка'], ['grant', 'Начислить'], ['merch', 'Мерч'], ['issue', 'Выдача'], ['live', 'Эфир'], ['vote', 'Голосование'], ['roster', 'Участники'], ['war', 'Карта'], ['set', 'Настройки'], ['help', 'Гайд']];
+type Tab = 'team' | 'qr' | 'mod' | 'grant' | 'words' | 'merch' | 'issue' | 'live' | 'vote' | 'roster' | 'war' | 'set' | 'help';
+const TABS: [Tab, string][] = [['team', 'Команда'], ['qr', 'QR-отметка'], ['mod', 'Проверка'], ['grant', 'Начислить'], ['words', 'Слова'], ['merch', 'Мерч'], ['issue', 'Выдача'], ['live', 'Эфир'], ['vote', 'Голосование'], ['roster', 'Участники'], ['war', 'Карта'], ['set', 'Настройки'], ['help', 'Гайд']];
 let lastTab: Tab = 'team';
 const ZONES: [DutyZone, string, string][] = [
   ['mod', 'Проверка заданий', 'clipboard'], ['qr', 'QR на блоках', 'qr'], ['merch', 'Мерч и выдача', 'bag'], ['live', 'Эфир и экран', 'chat'],
@@ -359,11 +359,83 @@ export function openStaff(app: App) {
     }));
   };
 
+
+  // ---------- Кодовые слова: добавить в моменте ----------
+  const drawWords = async () => {
+    let list: CodeWord[] = [];
+    let pts = 15, max = 0, mins = 0, gold = false;
+    const chips = (attr: string, opts: [number, string][], cur: number) => opts.map(([v, n]) => `<button class="chip ${v === cur ? 'on' : ''}" ${attr}="${v}">${n}</button>`).join('');
+    const left = (t: number) => { const m = Math.round((t - Date.now()) / 60000); return m <= 0 ? 'время вышло' : m < 60 ? `ещё ${m} мин` : `ещё ${Math.floor(m / 60)} ч ${m % 60} мин`; };
+    body.innerHTML = `<div class="col" data-words style="gap:10px"><div class="card col" style="gap:8px"><b>Новое кодовое слово</b>
+        <div class="small muted">Скажи его со сцены или покажи на слайде. Участники вводят слово в «Заданиях» → «Пасхалка в презентации» или на вкладке «QR». Регистр, пробелы, знаки и «ё» не важны.</div>
+        <input class="input-ans" data-w maxlength="60" placeholder="Например: Двигай горы" autocomplete="off">
+        <div class="small">Баллы</div><div class="chips" data-g="pts">${chips('data-pts', [[10, '10'], [15, '15'], [25, '25'], [50, '50'], [100, '100']], pts)}</div>
+        <div class="small">Кому</div><div class="chips" data-g="max">${chips('data-max', [[0, 'Всем'], [5, 'Первым 5'], [10, 'Первым 10'], [20, 'Первым 20']], max)}</div>
+        <div class="small">Сколько действует</div><div class="chips" data-g="mins">${chips('data-mins', [[0, 'Весь выезд'], [5, '5 минут'], [15, '15 минут'], [60, '1 час']], mins)}</div>
+        <label class="row small" style="gap:8px"><input type="checkbox" data-gold> Золотая пасхалка — засчитывается один раз в день на человека</label>
+        <button class="btn btn-gold btn-block" data-wadd>${icon('plus', 16)} Добавить слово</button></div>
+      <div class="section-h" data-wh>Слова</div><div class="list" data-wl><div class="muted small">Загрузка…</div></div>
+      <div class="howto small">Проверить слово: введи его сам — игра скажет «Слово верное» и ничего не начислит.<br>
+        Слова из списка организаторов скрыты: в открытом коде игры лежат только их отпечатки, сам список — в документе организаторов.<br>
+        Удалить слово — баллы у тех, кто его ввёл, останутся.</div></div>`;
+    const renderList = () => {
+      $(body, '[data-wh]').textContent = `Слова · ${list.length}`;
+      $(body, '[data-wl]').innerHTML = list.map((w) => {
+        const dead = !w.active || (w.expires !== null && w.expires < Date.now());
+        return `<div class="li" style="${dead ? 'opacity:.6' : ''}"><div class="grow"><b>${esc(w.text)}</b>${w.gold ? ' <span class="tag" style="background:#ffc83d33">золотая</span>' : ''}
+          <div class="small muted">+${w.points} · ввели ${w.found}${w.max ? ` из ${w.max}` : ''}${w.expires ? ` · ${left(w.expires)}` : ''}${w.active ? '' : ' · выключено'}${w.by ? ` · добавил ${esc(w.by)}` : ''}</div></div>
+          <button class="btn btn-ghost btn-sm" data-wtog="${esc(w.id)}" data-on="${w.active ? 0 : 1}">${w.active ? 'Выключить' : 'Включить'}</button>
+          ${w.hidden ? '' : `<button class="btn btn-ghost btn-sm" data-wdel="${esc(w.id)}" aria-label="Удалить">${icon('x', 14)}</button>`}</div>`;
+      }).join('') || '<div class="muted small">Слов пока нет</div>';
+    };
+    const load = async () => { list = await app.backend.staffWords().catch((e: Error) => { toast(e.message, 'bad'); return list; }); renderList(); };
+    // слушаем внутренний блок: при перерисовке вкладки он пересоздаётся, обработчики не копятся
+    $(body, '[data-words]').addEventListener('click', async (e) => {
+      const t = e.target as HTMLElement;
+      const pick = t.closest<HTMLElement>('[data-pts],[data-max],[data-mins]');
+      if (pick) {
+        if (pick.dataset.pts) pts = Number(pick.dataset.pts);
+        if (pick.dataset.max) max = Number(pick.dataset.max);
+        if (pick.dataset.mins) mins = Number(pick.dataset.mins);
+        pick.parentElement!.querySelectorAll('.chip').forEach((c) => c.classList.toggle('on', c === pick));
+        return;
+      }
+      if (t.closest('[data-wadd]')) {
+        const inp = $(body, '[data-w]') as HTMLInputElement;
+        const word = inp.value.trim();
+        if (!word) { toast('Впиши слово', 'bad'); return; }
+        gold = ($(body, '[data-gold]') as HTMLInputElement).checked;
+        try {
+          list = await app.backend.staffWordAdd(word, pts, max || null, mins || null, gold);
+          inp.value = ''; haptic('ok');
+          toast(`Слово «${word}» принимается: +${pts}${max ? `, первым ${max}` : ''}${mins ? `, ${mins} мин` : ''}`, 'ok');
+          renderList();
+        } catch (er) { toast((er as Error).message, 'bad'); haptic('bad'); }
+        return;
+      }
+      const tog = t.closest<HTMLElement>('[data-wtog]');
+      if (tog) { try { list = await app.backend.staffWordSet(tog.dataset.wtog!, tog.dataset.on === '1'); renderList(); } catch (er) { toast((er as Error).message, 'bad'); } return; }
+      const del = t.closest<HTMLElement>('[data-wdel]');
+      if (del) {
+        if (!confirmTap(del, 'Удалить?')) return;
+        try { list = await app.backend.staffWordDelete(del.dataset.wdel!); toast('Слово удалено', 'info'); renderList(); } catch (er) { toast((er as Error).message, 'bad'); }
+      }
+    });
+    ($(body, '[data-gold]') as HTMLInputElement).addEventListener('change', (e) => {
+      if ((e.target as HTMLInputElement).checked && pts < 50) {
+        pts = 50; body.querySelectorAll<HTMLElement>('[data-pts]').forEach((c) => c.classList.toggle('on', c.dataset.pts === '50'));
+      }
+    });
+    await load();
+    const timer = window.setInterval(() => { if (body.isConnected && tab === 'words') load(); }, 5000);
+    stopTimer = () => clearInterval(timer);
+  };
+
   const draw = () => {
     stopTimer(); stopTimer = () => {};
     lastTab = tab;
     node.querySelectorAll<HTMLElement>('.chip').forEach((c) => c.classList.toggle('on', c.dataset.v === tab));
-    ({ team: drawTeam, help: drawHelp, qr: () => drawQrStation(app, body, draw), mod: drawMod, grant: drawGrant, merch: drawMerch, issue: drawIssue, live: drawLive, vote: drawVote, roster: drawRoster, war: drawWar, set: drawSet })[tab]();
+    ({ team: drawTeam, help: drawHelp, qr: () => drawQrStation(app, body, draw), mod: drawMod, grant: drawGrant, words: drawWords, merch: drawMerch, issue: drawIssue, live: drawLive, vote: drawVote, roster: drawRoster, war: drawWar, set: drawSet })[tab]();
   };
 
   /** Начислить (+) или снять (−) ровно столько, сколько введено в поле. */
@@ -504,6 +576,7 @@ const GUIDE: [string, string[]][] = [
   ['Перед началом смены', ['Открой «Орг.» → «Команда» и отметь свою зону: проверка, QR, мерч, эфир, карта или помощь.', 'Посмотри, кто чем занят — не берите одну и ту же зону вдвоём без нужды.', 'Проверь связь: открой «Проверка» — если список грузится, всё в порядке.']],
   ['Отметка на блоке (QR)', ['«QR-отметка» → вид «Блок / лекция» → выбери название блока → «Открыть и показать QR».', 'Покажи телефон залу или нажми «На большой экран» на ноутбуке у проектора. QR и код меняются каждые 20 секунд — фото в чат не поможет.', 'Участники: вкладка «QR» внизу → «Сканировать» или ввести 6 знаков.', 'Отметку закрой в конце блока («Закрыть отметку»). Если такая уже открыта коллегой — игра покажет её, вторую не создаст.']],
   ['«Я — скорость»', ['«QR-отметка» → «Я — скорость». Баллы получают только первые N (по умолчанию 5).', 'QR статичный: сделай скриншот, распечатай или спрячь — работает, пока открыта отметка.']],
+  ['Кодовые слова (пасхалки)', ['«Слова» → впиши слово, выбери баллы, кому (всем или первым N) и сколько действует → «Добавить слово». С этой секунды участники могут его вводить.', 'Скажи слово со сцены или покажи на слайде. Вводят в «Заданиях» → «Пасхалка в презентации» или на вкладке «QR»; регистр, пробелы и знаки не важны.', 'Золотая пасхалка засчитывается один раз в день на человека.', 'Проверить слово — введи его сам: «Слово верное», баллы не начислятся. «Выключить» — слово перестаёт приниматься, удалить — баллы у нашедших останутся.']],
   ['Тайники и «Я — скорость» (распечатки)', ['10 тайников и золотой тайник — спрятать на базе в любое время: работают весь выезд. Золотой — только первому.', '«Я — скорость» 7 и 8 ноября — каждый QR работает только в свой день, баллы первым пяти. Спрятать утром своего дня.', 'Проверить распечатку: отсканируй её своим телефоном — игра скажет «Код верный» и сколько уже нашли, ничего не начислит и не потратит.', 'Новый «Я — скорость» на месте — «QR-отметка» → «Я — скорость» (QR на экране телефона).']],
   ['Проверка заданий', ['«Проверка» → «Взять 5». Сдачи закрепляются за тобой на 10 минут.', 'Смотри фото, ссылку или текст. Баллы подставлены по заданию — можно поправить.', '«Принять» — баллы сразу, участнику «✅ принято» в игре и в боте.', '«Отклонить» — обязательно напиши причину (есть готовые). Участник сможет сдать заново.', 'Уходишь — «Вернуть мои», чтобы сдачи не ждали 10 минут.']],
   ['Начислить или снять баллы', ['«Начислить» → найди участника по фамилии → выбери, за что → сколько баллов → «Начислить». Начисляется ровно введённое число.', '«Снять» — убрать баллы (не ниже нуля): за нарушение или ошибочное начисление. Напиши причину — участник её увидит.', 'Для активности на блоке, лучшего вопроса, помощи, конкурсов ведущего.']],

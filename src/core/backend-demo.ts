@@ -19,7 +19,7 @@ import { VOTE_DEFAULT_TITLE, defaultVoteTeams, type VoteAction, type VoteState }
 import type { RaidHit, RaidState } from './raid';
 import type { CasinoStats } from './casino';
 import type { Duel, DuelAnswer, DuelList } from './duel';
-import type {
+import type { CodeWord,
   Announcement, Backend, ClanMember, ClanView, FactionRow, GameConfig, LeaderRow, LectureSession, LoginParams, LoginResult,
   MySubmission, Note, PlayerRef, QrSessionInput, RosterRow, SharedTest, Submission, SubmitResult, TaskPayload, UserQuestion, Wallet,
   DutyZone, TeamMember,
@@ -45,6 +45,10 @@ const LS_DUTY = 'pbgame.duty';
 const LS_VOTE = 'pbgame.vote';
 const LS_RAID = 'pbgame.raid';
 const LS_DUELS = 'pbgame.duels';
+const LS_WORDS = 'pbgame.words';
+/** Слово → вид для сравнения: как на сервере (регистр, ё, пробелы и знаки, латиница-двойники). */
+const wordNorm = (p: string) => p.replace(/ё/g, 'е').replace(/Ё/g, 'Е').toUpperCase().replace(/[ABEKMHOPCTXY]/g, (c) => 'АВЕКМНОРСТХУ'['ABEKMHOPCTXY'.indexOf(c)]).replace(/[^А-ЯA-Z0-9]/g, '');
+interface DemoWord extends CodeWord { norm: string; who: string[] }
 /** Поединок в демо: соперник — бот, отвечает по одному вопросу раз в несколько секунд. */
 interface DemoDuel { id: string; code: string; qids: string[]; created: number; mine: boolean; my: { ans: Record<string, boolean>; start?: number; end?: number }; bot: { name: string; faction: FactionId; join: number; per: number; acc: number } }
 /** Сколько заданий квиза засчитывать: intro — 10 вопросов, docs — 3. */
@@ -286,7 +290,21 @@ export class DemoBackend implements Backend {
   async redeemCode(s: GameState, raw: string): Promise<SubmitResult> {
     if (/startapp=t_/.test(raw)) return { status: 'rejected', message: 'Печатные QR тайников работают в настоящей игре. В демо — коды CACHE-01…CACHE-10' };
     const up = raw.trim().toUpperCase();
+    // кодовые слова, добавленные в панели
+    const words = this.words(), w = words.find((x) => x.norm === wordNorm(raw));
+    if (w) {
+      const me = s.username;
+      if (w.who.includes(me)) return { status: 'rejected', message: 'Это слово ты уже вводил' };
+      if (!w.active) return { status: 'rejected', message: 'Это слово больше не принимается' };
+      if (w.expires && w.expires < Date.now()) return { status: 'rejected', message: 'Время на это слово вышло' };
+      if (w.max && w.who.length >= w.max) return { status: 'rejected', message: `Опоздал: слово уже ввели первые ${w.max}` };
+      const task = w.gold ? 'egg_gold' : 'egg';
+      if (!taskAvailable(s, task)) return { status: 'rejected', message: w.gold ? 'Золотая пасхалка сегодня уже засчитана' : 'Лимит пасхалок исчерпан' };
+      w.who.push(me); this.wordsOut(words); markDone(s, task); s.rating += w.points;
+      return { status: 'approved', granted: w.points, message: `${w.gold ? 'Золотая пасхалка' : 'Кодовое слово'}! +${w.points} баллов${w.max ? ` · ты ${w.who.length}-й из ${w.max}` : ''}` };
+    }
     const egg = DEMO_EGG_CODES[up];
+    if (!egg && /[БГДЁЖЗИЙЛПФЦЧШЩЪЫЬЭЮЯбгдёжзийлпфцчшщъыьэюя]/.test(raw)) return { status: 'rejected', message: 'Такого кодового слова нет — проверь написание' };
     if (egg) {
       if (s.tasks.eggs.includes(up)) return { status: 'rejected', message: 'Эту пасхалку ты уже нашёл' };
       if (!taskAvailable(s, egg.task)) return { status: 'rejected', message: 'Лимит по этому заданию исчерпан' };
@@ -510,6 +528,19 @@ export class DemoBackend implements Backend {
   }
 
   // ---------- поединки в правовухе (в демо соперник — бот) ----------
+  private words() { return lsJson<DemoWord[]>(LS_WORDS, []); }
+  private wordsOut(list: DemoWord[]) { lsSet(LS_WORDS, JSON.stringify(list)); return list.map(({ norm: _n, who, ...w }) => ({ ...w, found: who.length })); }
+  async staffWords() { return this.wordsOut(this.words()); }
+  async staffWordAdd(word: string, points: number, max: number | null, minutes: number | null, gold: boolean) {
+    const text = word.trim(), norm = wordNorm(text), list = this.words();
+    if (norm.length < 2) throw new Error('Слово слишком короткое');
+    if (points < 1 || points > 100) throw new Error('Баллы — от 1 до 100');
+    if (list.some((w) => w.norm === norm)) throw new Error('Такое слово уже есть');
+    list.unshift({ id: `w${Date.now()}`, text, norm, hidden: false, points, gold, max: max || null, expires: minutes ? Date.now() + minutes * 60000 : null, active: true, found: 0, who: [], by: this.state?.username ?? null, created: Date.now() });
+    return this.wordsOut(list);
+  }
+  async staffWordSet(id: string, active: boolean) { const list = this.words(); const w = list.find((x) => x.id === id); if (w) w.active = active; return this.wordsOut(list); }
+  async staffWordDelete(id: string) { return this.wordsOut(this.words().filter((x) => x.id !== id)); }
   private duels() { return lsJson<Record<string, DemoDuel>>(LS_DUELS, {}); }
   private saveDuels(d: Record<string, DemoDuel>) { lsSet(LS_DUELS, JSON.stringify(d)); }
   private duelOut(d: DemoDuel): Duel {
