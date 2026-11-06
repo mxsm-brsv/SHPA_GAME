@@ -1,4 +1,4 @@
-import { DAILY_GIFT } from '../../config/economy';
+import { DAILY_GIFT, giftIndex } from '../../config/economy';
 import { FACTIONS, factionById } from '../../config/factions';
 import { totemSvg } from '../../art/totems';
 import { coinSvg, icon, scrollSvg } from '../../art/icons';
@@ -13,30 +13,30 @@ export const giftAvailable = (s: GameState) => s.gift.lastDay !== mskDay();
 export function openGift(app: App) {
   const s = app.state;
   const today = mskDay();
-  const yesterday = mskDay(Date.now() - 86400_000);
-  const nextStreak = s.gift.lastDay === yesterday ? s.gift.streak + 1 : 1;
-  const idx = (Math.min(nextStreak, DAILY_GIFT.length) - 1);
+  const idx = giftIndex(today);
   const can = s.gift.lastDay !== today;
+  const last = idx === DAILY_GIFT.length - 1;
   const cells = DAILY_GIFT.map((g, i) => {
-    const got = can ? i < idx : i <= (Math.min(s.gift.streak, DAILY_GIFT.length) - 1);
+    const got = i < idx || (i === idx && !can);
     const cur = can && i === idx;
-    return `<div class="card center col" style="gap:4px;padding:8px 4px;${cur ? 'border-color:var(--gold)' : ''};${got ? 'opacity:.5' : ''}">
-      <div class="small muted">День ${i + 1}</div>
-      <div class="row" style="justify-content:center;gap:3px">${coinSvg(14)}<b class="small">${g.coins}</b></div>
-      ${g.scrolls ? `<div class="row" style="justify-content:center;gap:3px">${scrollSvg(14)}<b class="small">${g.scrolls}</b></div>` : ''}
+    return `<div class="card center col gift-day ${cur ? 'cur' : ''}" style="gap:6px;padding:14px 8px;${got ? 'opacity:.5' : ''}">
+      <div class="small muted">${g.label}</div>
+      <div class="row" style="justify-content:center;gap:6px">${coinSvg(22)}<b style="font-size:22px">${fmt(g.coins)}</b></div>
+      <div class="row" style="justify-content:center;gap:6px">${scrollSvg(18)}<b>${g.scrolls} ${g.scrolls >= 5 ? "свитков" : "свитка"}</b></div>
+      ${got ? '<div class="small">забрано</div>' : cur ? '<div class="small gold">сегодня</div>' : '<div class="small muted">завтра</div>'}
     </div>`;
   }).join('');
-  const m = modal(`<h2 style="font-size:22px">Ежедневный подарок</h2>
-    <div class="small muted" style="margin:4px 0 12px">Заходи каждый день — подарок растёт. Пропуск сбрасывает серию.</div>
-    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-bottom:14px">${cells}</div>
-    <button class="btn ${can ? 'btn-gold' : 'btn-blue'} btn-block" data-take ${can ? '' : 'disabled'}>${can ? 'Забрать' : 'Приходи завтра'}</button>`);
+  const m = modal(`<h2 style="font-size:22px">Подарок дня</h2>
+    <div class="small muted" style="margin:4px 0 12px">Выезд — два дня, и в каждый свой подарок: профкоины и свитки найма. Забирай 7 и 8 ноября.</div>
+    <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px">${cells}</div>
+    <button class="btn ${can ? 'btn-gold' : 'btn-blue'} btn-block" data-take ${can ? '' : 'disabled'}>${can ? 'Забрать' : last ? 'Подарки этого выезда собраны' : 'Следующий — завтра'}</button>`);
   $(m.root, '[data-take]').addEventListener('click', () => {
     if (!can) return;
     const g = DAILY_GIFT[idx];
     s.coins += g.coins; s.scrolls += g.scrolls;
-    s.gift = { lastDay: today, streak: nextStreak };
+    s.gift = { lastDay: today, streak: idx + 1 };
     haptic('ok');
-    toast(`+${g.coins} профкоинов${g.scrolls ? ` и ${g.scrolls} свиток` : ''}`, 'ok');
+    toast(`+${fmt(g.coins)} профкоинов и ${g.scrolls} ${g.scrolls >= 5 ? 'свитков' : 'свитка'} найма`, 'ok');
     m.close();
     app.update();
   });
@@ -63,7 +63,7 @@ export async function openRating(app: App, start: 'f' | 'p' = 'f') {
           return `<div class="li ${p.me ? 'me' : ''}"><div class="rank ${i < 3 ? 'top' : ''}">${i + 1}</div>${totemSvg(f, 32)}
             <div class="grow"><div style="font-weight:700">${esc(p.name)}</div><div class="small muted">${f.short} · ${pSort === 'rating' ? `вклад ${fmt(p.contributed)}` : `${fmt(p.rating)} баллов`}</div></div>
             <b class="gold">${fmt(p[pSort])}</b></div>`;
-        }).join('') + `<div class="small muted center">${pSort === 'rating' ? 'Баллы — за задания, блоки, игры и правовуху.' : 'Вклад — опыт, который участник принёс зданиям своего ПБ: тапы, вложенные профкоины, победы.'}${app.backend.mode === 'demo' ? ' Демо: соперники — боты.' : ''}</div>`;
+        }).join('') + `<div class="small muted center">${pSort === 'rating' ? 'Баллы — за задания и образовалку (блоки, квизы). Игры дают профкоины.' : 'Вклад — опыт, который участник принёс зданиям своего ПБ: тапы, вложенные профкоины, победы.'}${app.backend.mode === 'demo' ? ' Демо: соперники — боты.' : ''}</div>`;
     } else {
       const max = Math.max(1, ...data.factions.map((r) => r.score));
       body.innerHTML = data.factions.map((r, i) => {

@@ -7,12 +7,17 @@ import { randomSecret } from './codes';
 import type { CheckResult, Question } from './questions';
 import { markDone } from './rules';
 import { taskById } from '../config/tasks';
-import { migrate, newState, rollDay, type GameState, type Role } from './state';
+import { migrate, newState, type GameState, type Role } from './state';
 import { squadPower } from './logic';
 import { telegram } from './telegram';
-import { newWorld, type Order, type WorldState } from './world';
+import { newWorld, payWarCoins, type Order, type WorldState } from './world';
+import type { VoteAction, VoteState } from './vote';
+import type { RaidHit, RaidState } from './raid';
+import type { CasinoStats } from './casino';
+import type { Duel, DuelAnswer, DuelList } from './duel';
+import { SKIRMISH_WIN_COINS } from '../config/economy';
 import { fetchLiveJson, parseMerchLines, parseRosterLines } from './backend-demo';
-import type {
+import type { CodeWord,
   Announcement, Backend, ClanView, FactionRow, GameConfig, LeaderRow, LectureSession, LoginParams, LoginResult,
   MySubmission, Note, PlayerRef, QrSessionInput, RosterRow, SharedTest, Submission, SubmitResult, TaskPayload, UserQuestion, Wallet,
   DutyZone, TeamMember,
@@ -138,15 +143,6 @@ export class OnlineBackend implements Backend {
     return this.cfg;
   }
 
-  async addGameRating(s: GameState, source: string, value: number) {
-    const data = await this.rpc<{ granted: number; rating: number }>('add_game_rating', { p_source: source, p_value: Math.round(value) }).catch(() => null);
-    if (!data) return 0;
-    rollDay(s);
-    s.daily.byGame[source] = (s.daily.byGame[source] ?? 0) + data.granted;
-    s.daily.game += data.granted;
-    s.rating = data.rating;
-    return data.granted;
-  }
 
   async claimTask(s: GameState, task: string, p: TaskPayload = {}): Promise<SubmitResult> {
     try {
@@ -259,6 +255,7 @@ export class OnlineBackend implements Backend {
     const w = await this.rpc<WorldState & { my_order?: Order | null; my_order_round?: number }>('get_world').catch(() => null);
     if (!w) return newWorld();
     if (w.my_order !== undefined) { s.war.order = w.my_order ?? null; s.war.orderRound = w.my_order_round ?? 0; }
+    payWarCoins(s, w, SKIRMISH_WIN_COINS);
     return w;
   }
   async setOrder(s: GameState, order: Order | null) {
@@ -289,6 +286,37 @@ export class OnlineBackend implements Backend {
 
   async lecturesOpen() { return (await this.rpc<LectureSession[]>('lectures_open').catch(() => [])) ?? []; }
 
+  // ---------- поединки в правовухе ----------
+  async duelCreate() { return this.rpc<Duel>('law_duel_create'); }
+  async duelJoin(code: string) { return this.rpc<Duel>('law_duel_join', { p_code: code }); }
+  async duelStart(id: string) { return this.rpc<Duel>('law_duel_start', { p_id: id }); }
+  async duelAnswer(id: string, q: Question, given: string | number | boolean) {
+    return this.rpc<DuelAnswer>('law_duel_answer', { p_id: id, p_qid: q.id, p_answer: String(given) });
+  }
+  async duelState(id: string) { return this.rpc<Duel>('law_duel_state', { p_id: id }); }
+  async duelList() { return this.rpc<DuelList>('law_duel_list'); }
+
+  // ---------- захват профкома ----------
+  async raidState() { return await this.rpc<RaidState>('raid_state').catch(() => null); }
+  async raidHit(dmg: number) { return this.rpc<RaidHit>('raid_hit', { p_dmg: Math.round(dmg) }); }
+  async staffRaidSet(hp: number) { return this.rpc<RaidState>('staff_raid_set', { p_hp: Math.round(hp) }); }
+  async staffRaidReset() { return this.rpc<RaidState>('staff_raid_reset'); }
+
+  // ---------- голосование ----------
+  async voteState() { return await this.rpc<VoteState>('vote_state').catch(() => null); }
+  async voteCast(team: string, v: 1 | -1 | 0) { return this.rpc<VoteState>('vote_cast', { p_team: team, p_v: v }); }
+  async staffVoteSetup(title: string, teams: { id: string; name: string; faction: FactionId | null }[]) { return this.rpc<VoteState>('staff_vote_setup', { p_title: title, p_teams: teams }); }
+  async staffVoteControl(action: VoteAction, team: string | null = null) { return this.rpc<VoteState>('staff_vote_control', { p_action: action, p_team: team }); }
+  async voteJoin(fio: string, team: string, group?: string) { return this.rpc<VoteState & { joined?: string }>('vote_join', { p_fio: fio, p_team: team, p_group: group || null }); }
+  async staffVoteMembers() { return this.rpc<{ team: string; name: string; people: { id: string | number; name: string }[] }[]>('staff_vote_members'); }
+  async staffVoteKick(rosterId: string | number) { return this.rpc<VoteState>('staff_vote_kick', { p_roster: Number(rosterId) }); }
+  async staffWords() { return this.rpc<CodeWord[]>('staff_words'); }
+  async staffWordAdd(word: string, points: number, max: number | null, minutes: number | null, gold: boolean) {
+    return this.rpc<CodeWord[]>('staff_word_add', { p_word: word, p_points: points, p_max: max, p_minutes: minutes, p_gold: gold });
+  }
+  async staffWordSet(id: string, active: boolean) { return this.rpc<CodeWord[]>('staff_word_set', { p_id: id, p_active: active }); }
+  async staffWordDelete(id: string) { return this.rpc<CodeWord[]>('staff_word_delete', { p_id: id }); }
+
   async liveFeed() {
     const [db, repo] = await Promise.all([this.rpc<Announcement[]>('live_feed').catch(() => []), fetchLiveJson()]);
     return [...(db ?? []), ...repo].sort((a, b) => b.at - a.at);
@@ -314,8 +342,9 @@ export class OnlineBackend implements Backend {
   async staffSetDuty(zone: DutyZone, note: string) { await this.rpc('staff_set_duty', { p_zone: zone, p_note: note }); }
   async staffFindPlayers(q: string) { return (await this.rpc<PlayerRef[]>('staff_find_players', { p_q: q }).catch(() => [])) ?? []; }
   async staffGrant(playerId: string, task: string, amount: number, note?: string) {
-    await this.rpc('staff_grant', { p_player: playerId, p_amount: amount, p_task: task, p_note: note ?? null });
-    return `Начислено ${amount} баллов`;
+    const r = await this.rpc<{ granted: number; rating?: number }>('staff_grant', { p_player: playerId, p_amount: amount, p_task: task, p_note: note || null });
+    const g = r?.granted ?? amount;
+    return g < 0 ? `Снято ${-g} баллов${typeof r?.rating === 'number' ? ` · теперь ${r.rating}` : ''}` : `Начислено ${g} баллов`;
   }
   async staffForceRound() { await this.rpc('staff_force_round'); }
   async staffStartEvent(id: string) { await this.rpc('staff_start_event', { p_id: id }); }
@@ -348,7 +377,10 @@ export class OnlineBackend implements Backend {
     return this.rpc<string>('staff_roster_import', { p_rows: rows });
   }
   async staffRosterReset(id: string) { return this.rpc<string>('staff_roster_reset', { p_id: id }); }
-  async staffSetSetting(key: 'shop_open' | 'require_group', value: boolean) { await this.rpc('staff_set_setting', { p_key: key, p_value: value }); this.cfg = null; }
+  async staffSetSetting(key: 'shop_open' | 'require_group' | 'casino_reveal', value: boolean) { await this.rpc('staff_set_setting', { p_key: key, p_value: value }); this.cfg = null; }
+  async casinoStats() { return await this.rpc<CasinoStats>('casino_stats'); }
+  async casinoPointsBet(amount: number) { return await this.rpc<Wallet & { mult: 0; lost: number }>('casino_points_bet', { p_amount: amount }); }
+  async staffSetCheckinHost(rosterId: string | null) { this.cfg = await this.rpc<GameConfig>('staff_set_checkin_host', { p_roster: rosterId === null ? null : Number(rosterId) }); return this.cfg; }
   async adminResetProgress(confirm: string) {
     const r = await this.rpc<{ players: number; submissions: number; orders: number; qr: number; epoch: number; registrations?: number }>('admin_reset_progress', { p_confirm: confirm });
     this.frozen = true;

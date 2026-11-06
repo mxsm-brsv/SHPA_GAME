@@ -1,6 +1,6 @@
 // Магазин: мерч за баллы (ограниченное количество, автоскидка на то, что не берут) и игровые товары за профкоины.
 import { SHOP } from '../../config/economy';
-import { merchPrice, nextDiscountIn, type MerchItem, type MerchOrder } from '../../config/merch';
+import { merchPrice, nextDiscountIn, nextTier, type MerchItem, type MerchOrder } from '../../config/merch';
 import { coinSvg, icon, scrollSvg, starSvg } from '../../art/icons';
 import { haptic } from '../../core/telegram';
 import { $, el, esc, fmt, hm, modal, onAct, toast } from '../../lib/dom';
@@ -37,6 +37,7 @@ export function renderShop(app: App) {
     const card = (it: MerchItem) => {
       const p = merchPrice(it);
       const soon = nextDiscountIn(it);
+      const nt = nextTier(it);
       const out = it.stock <= 0;
       const limit = mine(it.id) >= it.perPerson;
       const can = cfg.shopOpen && !out && !limit && wallet.balance >= p.price && !staff;
@@ -46,14 +47,15 @@ export function renderShop(app: App) {
         <b>${esc(it.name)}</b>
         ${it.text ? `<div class="small muted">${esc(it.text)}</div>` : ''}
         <div class="small ${it.stock <= 2 && !out ? 'gold' : 'muted'}">${out ? 'закончилось' : `осталось ${it.stock} из ${it.total}`}</div>
-        <div class="m-price">${p.pct ? `<s>${fmt(it.price)}</s>` : ''}${starSvg(14)}<b>${fmt(p.price)}</b></div>
+        <div class="m-price">${p.pct ? `<s>${fmt(p.base)}</s>` : ''}${starSvg(14)}<b>${fmt(p.price)}</b></div>
+        ${!out && nt ? `<div class="small ${nt.price > p.base ? 'gold' : 'muted'}">останется ${nt.left} — цена ${nt.price > p.base ? 'вырастет до' : 'упадёт до'} ${fmt(nt.price)}</div>` : ''}
         ${soon && !out && cfg.shopOpen ? `<div class="small muted">ещё −${it.auto!.stepPct}% через ${hm(soon)}</div>` : ''}
         <button class="btn btn-gold btn-sm btn-block" data-act="buy" data-id="${it.id}" ${can ? '' : 'disabled'}>${out ? 'Нет' : limit ? 'Уже взял' : staff ? 'Вне зачёта' : wallet.balance < p.price ? `Ещё ${fmt(p.price - wallet.balance)}` : 'Купить'}</button>
       </div>`;
     };
     body.innerHTML = `
       <div class="card row wallet">${starSvg(30)}<div class="grow"><div class="small muted">Баллы на счёте</div><div style="font-family:var(--head);font-size:26px;color:var(--gold2)">${fmt(wallet.balance)}</div>
-        <div class="small muted">заработано ${fmt(wallet.earned)} · потрачено ${fmt(wallet.spent)}. Рейтинг от покупок не падает.</div></div></div>
+        <div class="small muted">заработано ${fmt(wallet.earned)} · потрачено ${fmt(wallet.spent)}${wallet.casino ? `, из них проиграно в колесе ${fmt(wallet.casino)}` : ''}. Рейтинг от покупок не падает.</div></div></div>
       ${cfg.shopOpen ? '' : '<div class="card small" style="border-color:var(--gold)"><b>Магазин мерча пока закрыт.</b> Можно присмотреться и копить баллы — организаторы откроют его в конце выезда.</div>'}
       ${orders.filter((o) => o.status === 'reserved').length ? `<div class="card col" style="gap:6px;border-color:var(--green)"><b>Мои покупки — забрать у организаторов</b>
         ${orders.filter((o) => o.status === 'reserved').map((o) => orderRow(o)).join('')}

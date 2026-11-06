@@ -50,7 +50,7 @@ select check_answer('t_q1', 'true')->>'correct' as a1, check_answer('t_q2', 'tru
 select claim_auto_task('docs_quiz', 3, null, :'qid')->>'granted' as granted_2_right;
 do $$ begin perform claim_auto_task('docs_quiz', 3, null, null); exception when others then raise notice 'ожидаемо: %', sqlerrm; end $$;
 do $$ begin perform claim_auto_task('docs_quiz', 3, null, current_setting('test.qid', true)); exception when others then raise notice 'ожидаемо (повтор): %', sqlerrm; end $$;
-update questions set active = true;
+update questions set active = true where true;
 
 \echo '--- QR: «Я — скорость» — статичный код, первые 2, раз в день; активность'
 set test.uid = :'admin_id';

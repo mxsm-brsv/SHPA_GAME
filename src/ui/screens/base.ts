@@ -18,6 +18,8 @@ import { openGift, openRating, openTrip, giftAvailable, openLive } from './modal
 import { openClan, openUpgrades } from './clan';
 import { openProfile } from './profile';
 import { openStaff } from './staff';
+import { openVote } from './vote';
+import { isMine } from '../../core/vote';
 import { openHelp } from '../tour';
 
 const KIND_ICON = { info: 'info', alert: 'bolt', win: 'trophy' } as const;
@@ -49,6 +51,7 @@ export function renderBase(app: App) {
       <div class="row small" style="justify-content:space-between"><span>${esc(lvl.name)}</span><span class="muted">${lvl.next ? `до «${esc(lvl.next.name)}» ${fmt(lvl.toNext)}` : 'максимальный уровень'}</span></div>
       <div class="xp"><i style="width:${Math.round(lvl.progress * 100)}%"></i></div>
       <button class="live-banner hidden" data-live data-act="live"></button>
+      <button class="live-banner vote-banner hidden" data-vote data-act="vote"></button>
     </div>
 
     <div class="side l">
@@ -186,6 +189,27 @@ export function renderBase(app: App) {
   live.addEventListener('live', drawLive);
   drawLive();
 
+  // ---------- голосование ----------
+  const voteEl = $(node, '[data-vote]');
+  const drawVote = () => {
+    const v = app.vote;
+    const myTeam = v?.myTeam ? v.teams.find((t) => t.id === v.myTeam) : null;
+    // команды заведены — можно вписаться заранее; дальше — голосование и итог
+    const show = !!v && v.teams.length > 0 && (v.status !== 'closed' || v.reveal || !!myTeam);
+    voteEl.classList.toggle('hidden', !show);
+    if (!show || !v) return;
+    const cur = v.current ? v.teams.find((t) => t.id === v.current)?.name : null;
+    const left = v.teams.filter((t) => (!v.current || t.id === v.current) && !isMine(v, t) && !v.my[t.id]).length;
+    voteEl.innerHTML = v.reveal
+      ? `${icon('trophy', 16, '#ffd76a')}<span>${esc(v.title)}: итоги — смотри, кто лучший</span>`
+      : v.status === 'open'
+        ? `<i class="vb-dot"></i><span>Голосование «${esc(v.title)}»${cur ? `: выступает ${esc(cur)}` : ''}${left ? ` · оцени ✅ ❌ — ${left}` : ' · твой голос учтён'}</span>`
+        : myTeam ? `${icon('users', 16)}<span>${esc(v.title)}: твоя команда — <b>${esc(myTeam.name)}</b>. Найди своих</span>`
+        : `${icon('users', 16)}<span>${esc(v.title)}: впиши себя в свою команду — ФИО и команда</span>`;
+  };
+  voteEl.addEventListener('vote', drawVote);
+  drawVote();
+
   // ---------- место ПБ и открытые отметки ----------
   app.cached('lb', 60_000, () => app.backend.leaderboard(s)).then(({ factions }) => {
     const i = factions.findIndex((x) => x.faction === s.faction);
@@ -238,6 +262,7 @@ export function renderBase(app: App) {
     help: () => openHelp(app),
     gift: () => openGift(app),
     live: () => openLive(app),
+    vote: () => openVote(app),
     profile: () => openProfile(app),
     staff: () => openStaff(app),
   });

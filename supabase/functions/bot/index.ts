@@ -19,12 +19,12 @@ async function webhookSecret() {
 
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-const playRow = () => (GAME_URL ? [{ text: '🎮 Играть', web_app: { url: GAME_URL } }] : []);
+const playRow = () => (GAME_URL ? [{ text: 'Играть', web_app: { url: GAME_URL } }] : []);
 const keyboard = () => ({
   inline_keyboard: [
     playRow(),
-    [{ text: '🏆 Мои баллы', callback_data: 'me' }, { text: '❓ Как играть', callback_data: 'help' }],
-    [{ text: '📣 Канал профкома', url: `https://t.me/${CHANNEL}` }],
+    [{ text: 'Мои баллы', callback_data: 'me' }, { text: 'Как играть', callback_data: 'help' }],
+    [{ text: 'Канал профкома', url: `https://t.me/${CHANNEL}` }],
   ].filter((r) => r.length),
 });
 
@@ -39,25 +39,31 @@ function meText(p: Profile | null, first: string) {
   const f = FACTION[p.faction] ?? p.faction;
   if (p.role !== 'participant') return `<b>${esc(p.name)}</b>, ты организатор (${f}). Панель организатора — кнопка «Орг.» на базе.`;
   return [
-    `<b>${esc(p.name)}</b> · профбюро <b>${f}</b>`,
-    `⭐ Баллы: <b>${p.rating}</b> — ${p.place}-е место из ${p.total}`,
-    p.fplace ? `🏰 ${f} сейчас на ${p.fplace}-м месте среди профбюро` : '',
-    p.unread ? `🔔 Непрочитанных уведомлений: ${p.unread} — загляни в игру` : '',
-  ].filter(Boolean).join('\n');
+    `<b>${esc(p.name)}</b>`,
+    `Профбюро <b>${f}</b>`,
+    '',
+    `Баллы: <b>${p.rating}</b> — ${p.place}-е место из ${p.total}`,
+    p.fplace ? `${f} — ${p.fplace}-е место среди профбюро` : '',
+    p.unread ? `\nНепрочитанных уведомлений: <b>${p.unread}</b>. Загляни в игру.` : '',
+  ].filter((x) => x !== null && x !== undefined).join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 const HELP = [
   '<b>Как играть в «ШПА»</b>',
   '',
-  '1. Жми «Играть», входи по ФИО и группе — профбюро подставится само (в каждом ПБ до 7 человек).',
-  '2. <b>Задания</b> — подписка на канал, квизы, творческие задания. Организатор проверит и пришлёт сюда ✅ или ❌.',
-  '3. <b>QR</b> — на каждом блоке организатор показывает QR: сканируй в игре и получай баллы за присутствие.',
-  '4. <b>Подготовка</b> — 1000+ вопросов к правовому конкурсу: тесты, карточки, свой тест.',
-  '5. <b>Карта</b> — настоящий кампус МЭИ: ратуши ПБ стоят в ваших аудиториях, точки захватывают в стычках.',
-  '6. <b>Игры</b> — мини-игры каждый день, лучший результат дня идёт в зачёт.',
-  '7. <b>Магазин</b> — мерч ППО за баллы. Покупка не уменьшает рейтинг.',
+  '<b>Вход.</b> Жми «Играть» и введи ФИО и группу как в списке выезда — профбюро подставится само.',
   '',
-  'Команды: /start — меню, /me — мои баллы, /channel — канал профкома.',
+  '<b>Баллы</b> дают задания и образовалка:',
+  '— задания: подписка на канал, квизы, творческие работы — организатор проверит и пришлёт ответ сюда;',
+  '— отметки на блоках: на каждом блоке сканируй QR в игре.',
+  '',
+  '<b>Профкоины</b> приносят мини-игры, бой, стычки на карте и штурм профкома. На них — отряд и колесо профкома.',
+  '',
+  '<b>Подготовка</b> — больше 1000 вопросов к правовому конкурсу: тесты и карточки.',
+  '<b>Карта</b> — настоящий кампус МЭИ: стычки профбюро и штурм профкома, где боссы — организаторы.',
+  '<b>Магазин</b> — мерч ППО за баллы. Покупка не уменьшает рейтинг.',
+  '',
+  'Команды: /start — меню, /me — мои баллы, /help — эта справка, /channel — канал профкома.',
 ].join('\n');
 
 async function send(chat: number, text: string, withKb = true) {
@@ -67,9 +73,9 @@ async function send(chat: number, text: string, withKb = true) {
 async function start(chat: number, from: { id: number; first_name?: string }) {
   const p = await profile(from.id);
   const hello = p && p.role === 'participant'
-    ? `Привет, <b>${esc(p.name.split(' ')[0] || p.name)}</b>! ⚡\nТы в профбюро <b>${FACTION[p.faction] ?? p.faction}</b>: ${p.rating} баллов, ${p.place}-е место из ${p.total}.`
-    : `Привет${from.first_name ? `, <b>${esc(from.first_name)}</b>` : ''}! ⚡\nЭто игра <b>Школы профсоюзного актива МЭИ</b>.`;
-  const caption = `${hello}\n\nЗадания, QR-отметки на блоках, подготовка к правовому конкурсу, битва профбюро за кампус и мерч ППО за баллы.\n\nЖми <b>«Играть»</b> 👇`;
+    ? `Привет, <b>${esc(p.name.split(' ')[0] || p.name)}</b>!\nТы в профбюро <b>${FACTION[p.faction] ?? p.faction}</b>: ${p.rating} баллов, ${p.place}-е место из ${p.total}.`
+    : `Привет${from.first_name ? `, <b>${esc(from.first_name)}</b>` : ''}!\nЭто игра <b>Школы профсоюзного актива МЭИ</b>.`;
+  const caption = `${hello}\n\nЗадания и отметки на блоках, подготовка к правовому конкурсу, битва профбюро за кампус и мерч ППО за баллы.\n\nЖми <b>«Играть»</b>.`;
   const photo = GAME_URL ? `${GAME_URL}bot/start.jpg` : '';
   if (photo) {
     const r = await tg('sendPhoto', { chat_id: chat, photo, caption, parse_mode: 'HTML', reply_markup: keyboard() });
@@ -91,7 +97,7 @@ Deno.serve(async (req) => {
       else if (cmd === '/help') await send(chat, HELP);
       else if (cmd === '/me') await send(chat, meText(await profile(msg.from.id), msg.from.first_name ?? ''));
       else if (cmd === '/channel') await send(chat, `Канал профкома МЭИ: https://t.me/${CHANNEL}\nПодпишись — это одно из заданий игры.`);
-      else await send(chat, 'Я бот игры ШПА: всё самое интересное — в игре. Нажми «Играть» 👇\n/help — как играть, /me — мои баллы.');
+      else await send(chat, 'Я бот игры ШПА — всё самое интересное в игре. Нажми «Играть».\n\n/help — как играть\n/me — мои баллы');
     }
     const cb = u?.callback_query;
     if (cb?.message?.chat?.id) {

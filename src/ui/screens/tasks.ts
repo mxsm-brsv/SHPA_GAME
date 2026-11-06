@@ -1,6 +1,5 @@
 // Задания выезда: сдача, QR, кодовые слова, квизы, формы. Статусы — выполнено / на проверке / доступно.
 import { DAY_TITLES, TASKS, type TaskDef } from '../../config/tasks';
-import { DAILY_GAME_RATING_CAP } from '../../config/economy';
 import { icon } from '../../art/icons';
 import { taskAvailable, type MySubmission } from '../../core/backend';
 import { qrSvg } from '../../core/qr';
@@ -45,7 +44,13 @@ function todayKey(): 'before' | 'nov7' | 'nov8' {
 }
 
 /** Задания — вкладка нижнего меню. */
+/** Кто отмечает на блоках и начисляет баллы (если организаторы выбрали одного человека). */
+let hostName: string | null = null;
+const taskTitle = (t: { id: string; title: string }) => (hostName && t.id === 'lecture' ? t.title.replace('подойди к организатору', `подойди к ${hostName}`) : t.title);
+const taskHow = (t: { check: string; how: string }) => (hostName && t.check === 'host' ? `${t.how} · баллы начисляет ${hostName}` : t.how);
+
 export function renderTasks(app: App) {
+  hostName = app.cfg.checkinHost?.name ?? null;
   const node = el(`<div class="screen"><div class="page">
     <div class="row"><h1 class="grow" style="font-size:24px">Задания</h1><span class="pill" data-sum></span></div>
     <div class="row" style="gap:8px">
@@ -54,13 +59,14 @@ export function renderTasks(app: App) {
       <button class="btn btn-blue grow btn-col" data-act="myqr">${icon('qr', 22)}<span class="sub">Мой QR</span></button>
     </div>
     <div class="howto small"><b>Как это работает.</b> Выбери задание → «Сдать» (фото, ссылка или текст). Организатор проверит, ответ придёт в «Ответы» и сообщением бота. Отметки на блоках — во вкладке <b>QR</b> внизу.</div>
-    <div class="chips" data-days>${([['today', 'Сегодня'], ['before', 'До выезда'], ['nov7', '7 ноября'], ['nov8', '8 ноября'], ['creative', 'Творческие'], ['all', 'Все']] as [DayFilter, string][])
+    <div class="chips" data-days>${([['today', 'Сегодня'], ['before', 'С запуска'], ['nov7', '7 ноября'], ['nov8', '8 ноября'], ['creative', 'Творческие'], ['all', 'Все']] as [DayFilter, string][])
       .map(([k, n]) => `<button class="chip ${k === dayFilter ? 'on' : ''}" data-act="day" data-v="${k}">${n}</button>`).join('')}</div>
     <div data-list></div>
   </div></div>`);
   const days = (): (typeof TASKS[number]['day'])[] => {
     if (dayFilter === 'all') return ['before', 'nov7', 'nov8', 'both', 'creative'];
-    if (dayFilter === 'today') return [todayKey(), 'both', 'creative'];
+    // «Сегодня»: всё, что ещё можно сделать, — задания дней выезда не сгорают до 8 ноября включительно
+    if (dayFilter === 'today') { const k = todayKey(); return k === 'nov8' ? ['nov8', 'nov7', 'before', 'both', 'creative'] : k === 'nov7' ? ['nov7', 'before', 'both', 'creative'] : ['before', 'both', 'creative']; }
     return [dayFilter];
   };
   const draw = () => {
@@ -84,9 +90,9 @@ export function renderTasks(app: App) {
       const rej = st === 'open' && last?.status === 'rejected' ? `<div class="small" style="color:#ff8a8a">Не принято${last.note ? `: ${esc(last.note)}` : ''}</div>` : '';
       return `<div class="li ${st === 'done' ? 'task-done' : ''}" style="align-items:flex-start">
         <div class="grow col" style="gap:3px"><div class="small muted">${esc(t.when)} · ${CHECK_TEXT[t.check]}</div>
-          <div style="font-weight:600;line-height:1.3">${esc(t.title)}</div><div class="small muted">${esc(t.how)} · <b class="gold">${esc(t.rating)}</b></div>${rej}</div>${btn}</div>`;
+          <div style="font-weight:600;line-height:1.3">${esc(taskTitle(t))}</div><div class="small muted">${esc(taskHow(t))} · <b class="gold">${esc(t.rating)}</b></div>${rej}</div>${btn}</div>`;
     }).join('')}</div>`;
-    }).join('') + `<div class="small muted center" style="margin:12px 0">Баллы за задания — сверх лимита игр (${DAILY_GAME_RATING_CAP} в сутки).</div>`;
+    }).join('') + `<div class="small muted center" style="margin:12px 0">Баллы дают только задания и образовалка. Игры приносят профкоины.</div>`;
   };
   const nb = $(node, '[data-nbadge]');
   const drawNotes = () => { const n = app.notes.filter((x) => !x.read).length; nb.textContent = String(n); nb.classList.toggle('hidden', !n); };

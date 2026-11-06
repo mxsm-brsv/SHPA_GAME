@@ -21,14 +21,13 @@ export interface TaskDef {
 }
 
 export const TASKS: TaskDef[] = [
-  // До выезда, с 5 ноября
+  // С запуска, до 8 ноября включительно
   { id: 'profile', when: 'С запуска', day: 'before', title: 'Заполнить профиль: институт, курс, фото, 3 факта о себе', check: 'auto', how: 'Авто', rating: '20', amount: 20, limit: 'once', form: 'profile' },
   { id: 'tg_channel', when: 'С запуска', day: 'before', title: 'Подписаться на Telegram-канал ППО', check: 'auto', how: 'Бот сам проверяет подписку; без Telegram — скриншот на проверку', rating: '20', amount: 20, limit: 'once', form: 'channel' },
   { id: 'vk_group', when: 'С запуска', day: 'before', title: 'Вступить в группу ППО во ВКонтакте', check: 'moderation', how: 'Скриншот на модерацию', rating: '20', amount: 20, limit: 'once', form: 'photo', hint: 'Скриншот, где видно, что ты в группе' },
   { id: 'intro_quiz', when: 'С запуска', day: 'before', title: 'Квиз «Что ты знаешь о профсоюзе», 10 вопросов', check: 'auto', how: 'Авто, 5 за верный ответ', rating: 'до 50', amount: 5, limit: 'once', form: 'quiz' },
   { id: 'daily_login', when: 'Каждый день', day: 'before', title: 'Зайти в игру', check: 'auto', how: 'Авто', rating: '10 в день', amount: 10, limit: 'daily' },
-  { id: 'story', when: 'До 7 ноября', day: 'before', title: 'Сторис или пост «Еду на выезд» с хэштегом выезда', check: 'moderation', how: 'Ссылка или скрин на модерацию', rating: '30', amount: 30, limit: 'once', form: 'link+photo', hint: 'Ссылка на пост или скриншот сторис' },
-  { id: 'invite', when: 'До 7 ноября', day: 'before', title: 'Собрать всё своё ПБ в игре', check: 'auto', how: 'Когда войдут все участники ПБ из списка — каждому', rating: '15', amount: 15, limit: 'once', form: 'invite' },
+  { id: 'story', when: 'До 8 ноября', day: 'before', title: 'Сторис или пост «Я на выезде»', check: 'moderation', how: 'Ссылка или скрин на модерацию', rating: '30', amount: 30, limit: 'once', form: 'link+photo', hint: 'Ссылка на пост или скриншот сторис' },
   // 7 ноября
   { id: 'bingo', when: '11:00 Знакомка', day: 'nov7', title: 'Бинго знакомств: карточка 3×3 «найди того, кто…»', check: 'qr', how: 'Скан QR нужного человека; линия — 40, вся карточка — 80', rating: 'до 80', amount: 40, limit: 2 },
   { id: 'grant', when: '11:30 Гранты', day: 'nov7', title: 'Особый заказ «Грантодатель»: идея проекта — проблема, решение, бюджет', check: 'moderation', how: 'Текст на модерацию', rating: '50', amount: 50, limit: 'once', form: 'text', hint: 'Проблема → решение → бюджет. 3–6 предложений' },
@@ -49,7 +48,7 @@ export const TASKS: TaskDef[] = [
   { id: 'lecture', when: 'На каждом блоке', day: 'both', title: 'Отметиться на блоке: подойди к организатору и отсканируй QR', check: 'qr', how: 'QR на телефоне организатора или на экране; меняется каждые 20 секунд, под ним — код', rating: '15 за блок', amount: 15, limit: 30 },
   { id: 'speed_qr', when: 'Каждый день', day: 'both', title: '«Я — скорость»: найти спрятанный QR дня', check: 'qr', how: 'Организаторы прячут QR на базе; баллы — только первым пяти', rating: '30', amount: 30, limit: 'daily' },
   { id: 'thought', when: 'После блока', day: 'both', title: 'Мысль с блока: особый заказ «Конспект»', check: 'auto', how: 'От 80 символов, до конца дня блока', rating: '20', amount: 20, limit: 8, form: 'thought' },
-  { id: 'egg', when: 'На блоках', day: 'both', title: 'Пасхалка в презентации', check: 'code', how: 'Кодовое слово, до конца дня блока', rating: '15', amount: 15, limit: 20 },
+  { id: 'egg', when: 'На блоках', day: 'both', title: 'Пасхалка в презентации', check: 'code', how: 'Кодовое слово из презентации или со сцены. Некоторые слова живут недолго или только для первых', rating: '15', amount: 15, limit: 50 },
   { id: 'egg_gold', when: 'Раз в день', day: 'both', title: 'Золотая пасхалка', check: 'code', how: 'Кодовое слово', rating: '50', amount: 50, limit: 'daily' },
   { id: 'docs_quiz', when: 'После образовалки', day: 'both', title: 'Квиз по документам', check: 'auto', how: 'Авто, 3 вопроса', rating: 'до 30', amount: 10, limit: 'daily', form: 'quiz' },
   { id: 'case_day', when: 'Каждый день', day: 'both', title: '«Дело дня» — правовая ситуация', check: 'auto', how: 'Авто, раздел «Правовуха»', rating: '20', amount: 20, limit: 'daily' },
@@ -58,14 +57,12 @@ export const TASKS: TaskDef[] = [
   { id: 'cache_gold', when: 'Весь выезд', day: 'both', title: 'Золотой тайник — один на всех', check: 'qr', how: 'Только первому', rating: '100', amount: 100, limit: 'once' },
   { id: 'help', when: 'Весь выезд', day: 'both', title: 'Помочь организаторам: дежурство, перенос техники', check: 'host', how: 'Отмечает организатор, до 3 раз', rating: '20', amount: 20, limit: 3 },
   { id: 'photo', when: 'Раз в день', day: 'both', title: 'Фото дня для медиа ППО', check: 'moderation', how: 'Фото на модерацию', rating: '20', amount: 20, limit: 'daily', form: 'photo', hint: 'Лучшее фото дня с выезда' },
-  // Творческие задания (конкурсы СКС «Ты — лидер»), с 5 ноября и весь выезд — проверяют организаторы
+  // Творческие задания (конкурсы СКС «Ты — лидер»), до 8 ноября включительно — проверяют организаторы
   { id: 'likes', when: 'Каждый день', day: 'creative', title: 'Пролайкать все новые посты ППО во ВКонтакте и в Telegram', check: 'moderation', how: 'Скриншоты лайков и реакций за день', rating: '10 в день', amount: 10, limit: 'daily', form: 'photo', hint: 'Скриншот (можно коллаж): лайки под всеми постами дня в группе ВК и реакции в канале TG' },
   { id: 'vk_comments', when: 'Каждый день', day: 'creative', title: 'Коммент, лайк, подписка: осмысленный комментарий под постом ППО во ВКонтакте', check: 'moderation', how: 'Скриншот комментария', rating: '10 в день', amount: 10, limit: 'daily', form: 'photo', hint: 'Скриншот твоего комментария под постом группы ППО' },
-  { id: 'meme', when: 'Каждый день', day: 'creative', title: 'Мемный конкурс: мем про профсоюз или выезд в чат/комментарии канала ППО', check: 'moderation', how: 'Скриншот опубликованного мема', rating: '20 в день', amount: 20, limit: 'daily', form: 'photo', hint: 'Скриншот мема в Telegram ППО' },
+  { id: 'meme', when: 'Каждый день', day: 'creative', title: 'Мемный конкурс: мем про профсоюз или выезд в комментарии канала выезда', check: 'moderation', how: 'Скриншот мема в комментариях канала выезда', rating: '20 в день', amount: 20, limit: 'daily', form: 'photo', hint: 'Скриншот мема в комментариях канала выезда' },
   { id: 'history', when: 'Каждый день', day: 'creative', title: 'Исторический конкурс: сторис во ВКонтакте об исторической дате или герое', check: 'moderation', how: 'Скриншот сторис', rating: '20 в день', amount: 20, limit: 'daily', form: 'link+photo', hint: 'Скриншот сторис ВК (ссылка — если есть)' },
-  { id: 'morning', when: '7 и 8 ноября, до 10:00', day: 'creative', title: 'Утренний лидер: зарядка 5+ человек, 7+ упражнений', check: 'moderation', how: 'Видео до 10:00 — ссылка (Диск, ВК, TG) и кадр', rating: '40 в день', amount: 40, limit: 'daily', form: 'link+photo', hint: 'Ссылка на видео зарядки и кадр из него. Снято до 10:00, в кадре 5+ человек' },
   { id: 'letter', when: 'Весь выезд', day: 'creative', title: 'Искренний лидер: рукописное письмо (другу, наставнику, себе через год)', check: 'moderation', how: 'Фото письма', rating: '30', amount: 30, limit: 'once', form: 'photo', hint: 'Фото рукописного письма' },
-  { id: 'monument', when: 'Весь выезд', day: 'creative', title: 'Лидеры с историей: фото у памятника и пост во ВКонтакте с хэштегами выезда', check: 'moderation', how: 'Ссылка на пост и фото', rating: '40', amount: 40, limit: 'once', form: 'link+photo', hint: 'Ссылка на пост ВК с хэштегами и фото у памятника' },
   { id: 'new_contest', when: 'Весь выезд', day: 'creative', title: 'Новый конкурс: придумай формат конкурса для студактива', check: 'moderation', how: 'Текст 200–2000 символов', rating: '30', amount: 30, limit: 'once', form: 'text', hint: 'Название, суть, правила, как оценивать, почему это интересно', minText: 200, maxText: 2000 },
   { id: 'new_merch', when: 'Весь выезд', day: 'creative', title: 'Новый мерч: дизайн мерча ППО', check: 'moderation', how: 'Картинка или фото эскиза', rating: '30', amount: 30, limit: 'once', form: 'photo', hint: 'Макет или фото эскиза мерча' },
   { id: 'stickers', when: 'Весь выезд', day: 'creative', title: 'Стикерпак про ППО или выезд', check: 'moderation', how: 'Ссылка на стикерпак', rating: '40', amount: 40, limit: 'once', form: 'link', hint: 'Ссылка t.me/addstickers/…' },
@@ -73,16 +70,19 @@ export const TASKS: TaskDef[] = [
   { id: 'edit', when: 'Весь выезд', day: 'creative', title: '«Не мешайте, мы в эдите»: клип о выезде от 30 секунд', check: 'moderation', how: 'Ссылка на видео', rating: '50', amount: 50, limit: 'once', form: 'link', hint: 'Ссылка на клип (ВК, TG, Диск), не короче 30 секунд' },
   { id: 'photohunt', when: 'Весь выезд', day: 'creative', title: 'Фотоохота: коллаж с 4+ организаторами', check: 'moderation', how: 'Фото-коллаж', rating: '30', amount: 30, limit: 'once', form: 'photo', hint: 'Коллаж: ты с каждым из 4+ организаторов' },
   { id: 'cheese', when: 'Весь выезд', day: 'creative', title: '«Сыыыр»: фото всего своего ПБ на выезде', check: 'moderation', how: 'Фото, где всё ПБ в сборе', rating: '30', amount: 30, limit: 'once', form: 'photo', hint: 'Все участники твоего ПБ в одном кадре' },
-  { id: 'steps', when: 'До 8 ноября', day: 'creative', title: 'Баллы за шаги: 80 000 шагов за 5–8 ноября', check: 'moderation', how: 'Скриншот шагомера за эти дни', rating: '60', amount: 60, limit: 'once', form: 'photo', hint: 'Скриншот из приложения шагов: сумма за 5–8 ноября' },
+  { id: 'lightning', when: 'До 8 ноября', day: 'creative', title: '«Живая молния»: выстройтесь всем ПБ в форме молнии ШПА и сфотографируйтесь', check: 'moderation', how: 'Фото на модерацию; молнию должно быть видно', rating: '40', amount: 40, limit: 'once', form: 'photo', hint: 'Фото, где ваше ПБ выстроилось молнией' },
+  { id: 'breakfast', when: '7 и 8 ноября', day: 'creative', title: 'Завтрак с новым знакомым: селфи за завтраком с участником из другого ПБ', check: 'moderation', how: 'Фото на модерацию, раз в день', rating: '20 в день', amount: 20, limit: 'daily', form: 'photo', hint: 'Селфи за завтраком: ты и человек из другого профбюро' },
+  { id: 'interview', when: 'До 8 ноября', day: 'creative', title: 'Интервью с организатором: как он пришёл в профсоюз и что ему это дало', check: 'moderation', how: 'Текст: имя организатора и 3 факта из разговора', rating: '30', amount: 30, limit: 'once', form: 'text', hint: 'Кого спросил и три самых интересных факта', minText: 120, maxText: 1500 },
+  { id: 'warmup', when: 'До 8 ноября', day: 'creative', title: 'Активный перерыв: проведи разминку для 5+ человек между блоками', check: 'moderation', how: 'Фото или кадр из видео разминки', rating: '30', amount: 30, limit: 'once', form: 'photo', hint: 'Кадр, где видно тебя и 5+ участников разминки' },
   { id: 'color_date', when: 'Весь выезд', day: 'creative', title: 'Цветное свидание: коллаж из 10 жёлтых и 10 синих предметов', check: 'moderation', how: 'Фото-коллаж', rating: '30', amount: 30, limit: 'once', form: 'photo', hint: 'Коллаж: 10 жёлтых и 10 синих предметов' },
 ];
 
 export const DAY_TITLES: Record<TaskDef['day'], string> = {
-  before: 'До выезда — с 5 ноября',
+  before: 'С запуска — до 8 ноября',
   nov7: '7 ноября — на выезде',
   nov8: '8 ноября — на выезде',
   both: 'Сквозные — оба дня',
-  creative: 'Творческие — с 5 ноября и весь выезд',
+  creative: 'Творческие — до 8 ноября включительно',
 };
 
 export const taskById = (id: string) => TASKS.find((t) => t.id === id);

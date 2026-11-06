@@ -2,6 +2,7 @@ import { factionById } from '../config/factions';
 import { createBackend, type Announcement, type Backend, type ClanView, type GameConfig, type Note } from '../core/backend';
 import { claimIdle, setClanBonuses } from '../core/logic';
 import type { Question } from '../core/questions';
+import type { VoteState } from '../core/vote';
 import { mskDay, newState, rollDay, type GameState } from '../core/state';
 import { haptic, initTelegram, telegram } from '../core/telegram';
 import { icon } from '../art/icons';
@@ -40,6 +41,9 @@ export class App {
   clan: ClanView | null = null;
   cfg: GameConfig = { shopOpen: false, testMode: false, requireGroup: true };
   live: Announcement[] = [];
+  /** Голосование «Работа со спонсорами» (null — пока не загрузилось). */
+  vote: VoteState | null = null;
+  private voteTick = 0;
   notes: Note[] = [];
   private seenNotes = new Set<string>();
   private saveTimer = 0;
@@ -92,11 +96,14 @@ export class App {
       window.setInterval(() => this.flush(), FLUSH_MS);
       window.setInterval(() => this.refreshLive(), LIVE_MS);
       window.setInterval(() => this.refreshNotes(), NOTES_MS);
+      // голосование: пока открыто — раз в 5 с, иначе раз в 15 с (чтобы баннер появился быстро, когда откроют)
+      window.setInterval(() => { this.voteTick++; if (this.vote?.status === 'open' || this.voteTick % 3 === 0) this.refreshVote(); }, 5000);
       document.addEventListener('visibilitychange', () => { if (document.hidden) { this.flush(); this.saveNow(); } });
       window.addEventListener('pagehide', () => { this.flush(); this.saveNow(); });
     }
     await this.refreshClan();
     this.refreshLive();
+    this.refreshVote();
     this.enterGame();
     if (fresh) showWelcome(this);
     this.handleStartParam();
@@ -106,6 +113,17 @@ export class App {
   private async handleStartParam() {
     const p = this.startParam;
     this.startParam = '';
+    const dm = p.match(/^duel_([A-Za-z0-9]{5})$/);
+    if (dm) { const { openDuelHub } = await import('../games/duel'); if (!this.questions.length) this.questions = await this.backend.getQuestions().catch(() => []); openDuelHub(this, { code: dm[1] }); return; }
+    // печатный QR: тайник или «Я — скорость» (t.me/бот?startapp=t_КОД)
+    const tm = p.match(/^t_([A-Za-z0-9]+)$/);
+    if (tm) {
+      const r = await this.backend.redeemCode(this.state, `startapp=t_${tm[1]}`);
+      haptic(r.status === 'approved' ? 'ok' : 'bad');
+      toast(r.message, r.status === 'approved' ? 'ok' : 'bad');
+      this.update();
+      return;
+    }
     const m = p.match(/^lec_([A-Za-z0-9]+)$/);
     if (!m) return;
     const r = await this.backend.redeemCode(this.state, `SHPA:L:${m[1]}`);
@@ -116,6 +134,15 @@ export class App {
   async refreshClan() {
     const c = await this.backend.getClan(this.state).catch(() => null);
     if (c) { this.clan = c; setClanBonuses(c.bonuses); }
+  }
+
+  async refreshVote() {
+    if (!this.state || document.hidden) return;
+    const v = await this.backend.voteState().catch(() => null);
+    if (!v) return;
+    const changed = !this.vote || this.vote.status !== v.status || this.vote.current !== v.current || this.vote.reveal !== v.reveal || this.vote.round !== v.round;
+    this.vote = v;
+    if (changed) this.root.querySelectorAll<HTMLElement>('[data-vote]').forEach((n) => n.dispatchEvent(new CustomEvent('vote')));
   }
 
   async refreshLive() {

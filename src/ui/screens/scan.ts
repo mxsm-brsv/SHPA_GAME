@@ -28,14 +28,14 @@ export function renderQr(app: App) {
     <h1 style="font-size:24px">Отметка на блоке</h1>
     <div class="qr-hero">
       ${cam ? `<button class="btn btn-gold btn-block qr-big" data-act="scan">${icon('camera', 28)}<span>Сканировать QR</span></button>` : '<div class="small muted">Камера здесь недоступна — введи код под QR. В Telegram работает встроенный сканер.</div>'}
-      <div class="row" style="gap:8px"><input class="input-ans grow" data-code placeholder="Или код под QR: K7M 2QX" autocomplete="off" autocapitalize="characters" maxlength="24"><button class="btn btn-blue" data-act="ok">OK</button></div>
+      <div class="row" style="gap:8px"><input class="input-ans grow" data-code placeholder="Код под QR или кодовое слово" autocomplete="off" autocapitalize="characters" maxlength="60"><button class="btn btn-blue" data-act="ok">OK</button></div>
     </div>
     <div class="section-h">Сейчас открыто</div>
     <div data-open class="col" style="gap:8px"><div class="muted small">Загрузка…</div></div>
     <div class="section-h">Как отметиться</div>
     <div class="scan-how card">
       <div class="scan-sample">${qrSvg('SHPA:L:PRIMER')}<span>пример</span></div>
-      <div class="small">1. На блоке организатор показывает QR — на телефоне или на экране зала.<br>2. Нажми «Сканировать» и наведи камеру.<br>3. Не сканируется — введи 6 знаков под QR.<br><span class="muted">Баллы — раз за блок. «Я — скорость» — только первым.</span></div>
+      <div class="small">1. На блоке ${app.cfg.checkinHost ? `<b>${esc(app.cfg.checkinHost.name)}</b>` : 'организатор'} показывает QR — на телефоне или на экране зала.<br>2. Нажми «Сканировать» и наведи камеру.<br>3. Не сканируется — введи 6 знаков под QR.<br>Тайники и «Я — скорость» на распечатках — так же: сканируй или введи 10 знаков под QR.<br><span class="muted">Баллы — раз за блок. «Я — скорость» — только первым пяти и только в свой день.</span></div>
     </div>
     <div class="row" style="gap:8px;margin-top:10px">
       <button class="btn btn-blue grow btn-col" data-act="word">${icon('sparkle', 20)}<span class="sub">Кодовое слово</span></button>

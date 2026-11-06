@@ -6,6 +6,10 @@ import { TEST_MODE } from '../config/test';
 import type { CheckResult, Question } from './questions';
 import type { GameState, Role } from './state';
 import type { Order, WorldState } from './world';
+import type { VoteAction, VoteState } from './vote';
+import type { RaidHit, RaidState } from './raid';
+import type { CasinoStats } from './casino';
+import type { Duel, DuelAnswer, DuelList } from './duel';
 
 export interface LeaderRow { name: string; faction: FactionId | null; rating: number; contributed: number; power: number; me?: boolean; bot?: boolean }
 export interface FactionRow { faction: FactionId; players: number; limit: number; rating: number; influence: number; xp: number; ratusha: number; score: number }
@@ -15,6 +19,8 @@ export interface Submission { id: string; player: string; playerId?: string; fac
 /** Зона дежурства организатора: чтобы не делать одно и то же вдвоём. */
 export type DutyZone = 'mod' | 'qr' | 'merch' | 'live' | 'map' | 'help' | 'free';
 export interface TeamMember { id: string; name: string; role: Role; me: boolean; zone: DutyZone; note: string; at: number; reviewed: number; holding: number; qrOpen: number }
+/** Кодовое слово (пасхалка) в панели организатора. Слова из списка организаторов в базе только отпечатками — у них hidden и подпись вместо текста. */
+export interface CodeWord { id: string; text: string; hidden: boolean; points: number; gold: boolean; max: number | null; expires: number | null; active: boolean; found: number; by: string | null; created: number }
 export interface SubmitResult { status: 'approved' | 'pending' | 'rejected' | 'error'; granted?: number; message: string }
 export interface PlayerRef { id: string; name: string; faction: FactionId | null; rating: number }
 export interface TaskPayload { text?: string; link?: string; photo?: Blob; value?: number; quiz?: string }
@@ -37,8 +43,17 @@ export interface LectureSession {
 }
 export interface Announcement { id: string; text: string; kind: 'info' | 'alert' | 'win'; at: number; until?: number | null; author?: string; source?: 'staff' | 'claude' }
 export interface RosterRow { id: string; fio: string; faction: FactionId; group: string; role: Role; bound: boolean; tg?: boolean }
-export interface Wallet { earned: number; spent: number; balance: number }
-export interface GameConfig { shopOpen: boolean; testMode: boolean; requireGroup: boolean }
+/** Баллы на мерч: заработано (рейтинг) − потрачено (заказы и проигрыш в колесе). casino — сколько из потраченного ушло в колесо. */
+export interface Wallet { earned: number; spent: number; balance: number; casino?: number }
+export interface GameConfig {
+  shopOpen: boolean; testMode: boolean; requireGroup: boolean;
+  /** Кто отмечает на блоках и начисляет баллы (null — все организаторы) */
+  checkinHost?: { id: number | string; name: string } | null;
+  /** Могу ли я открывать отметки на блоках и начислять баллы */
+  canCheckin?: boolean;
+  /** Организаторы раскрыли, как подкручено колесо профкома */
+  casinoReveal?: boolean;
+}
 
 export interface Backend {
   mode: 'demo' | 'online';
@@ -54,7 +69,6 @@ export interface Backend {
   save(s: GameState): Promise<void>;
   config(): Promise<GameConfig>;
   /** value — сколько рейтинга стоит результат (0..30 для мини-игры). Возвращает начисленное. */
-  addGameRating(s: GameState, source: string, value: number): Promise<number>;
   claimTask(s: GameState, task: string, payload?: TaskPayload): Promise<SubmitResult>;
   submitTask(s: GameState, task: string, payload: TaskPayload): Promise<SubmitResult>;
   /** Кодовое слово, тайник, код лекции, личный QR знакомого. */
@@ -126,12 +140,46 @@ export interface Backend {
   staffRoster(): Promise<RosterRow[]>;
   staffRosterImport(text: string): Promise<string>;
   staffRosterReset(id: string): Promise<string>;
-  staffSetSetting(key: 'shop_open' | 'require_group', value: boolean): Promise<void>;
+  staffSetSetting(key: 'shop_open' | 'require_group' | 'casino_reveal', value: boolean): Promise<void>;
+  /** Общий итог колеса профкома (после разоблачения — всем, до него — организаторам). */
+  casinoStats(): Promise<CasinoStats | null>;
+  /** Ставка баллами на мерч: всегда ×0, баллы уходят со счёта магазина (рейтинг не меняется). */
+  casinoPointsBet(amount: number): Promise<Wallet & { mult: 0; lost: number }>;
+  /** Админ: кто отмечает (id строки списка выезда) или null — все организаторы. */
+  staffSetCheckinHost(rosterId: string | null): Promise<GameConfig>;
   /** Только админ: обнулить прогресс всех (подтверждение — слово «СБРОС»). */
   adminResetProgress(confirm: string): Promise<string>;
+  // ---- голосование «Работа со спонсорами» ----
+  voteState(): Promise<VoteState | null>;
+  voteCast(team: string, v: 1 | -1 | 0): Promise<VoteState>;
+  staffVoteSetup(title: string, teams: { id: string; name: string; faction: FactionId | null }[]): Promise<VoteState>;
+  staffVoteControl(action: VoteAction, team?: string | null): Promise<VoteState>;
+  /** Вписать человека (себя или товарища) по ФИО в команду. Группа — только если тёзки. */
+  voteJoin(fio: string, team: string, group?: string): Promise<VoteState & { joined?: string }>;
+  /** Составы команд с именами (только организаторам). */
+  staffVoteMembers(): Promise<{ team: string; name: string; people: { id: string | number; name: string }[] }[]>;
+  /** Организатор: убрать человека из команды. */
+  staffVoteKick(rosterId: string | number): Promise<VoteState>;
+  /** Кодовые слова: список, добавить в моменте (баллы, первым N, на M минут, золотая), включить/выключить, удалить */
+  staffWords(): Promise<CodeWord[]>;
+  staffWordAdd(word: string, points: number, max: number | null, minutes: number | null, gold: boolean): Promise<CodeWord[]>;
+  staffWordSet(id: string, active: boolean): Promise<CodeWord[]>;
+  staffWordDelete(id: string): Promise<CodeWord[]>;
+  // ---- поединки в правовухе ----
+  duelCreate(): Promise<Duel>;
+  duelJoin(code: string): Promise<Duel>;
+  duelStart(id: string): Promise<Duel>;
+  duelAnswer(id: string, q: Question, given: string | number | boolean): Promise<DuelAnswer>;
+  duelState(id: string): Promise<Duel>;
+  duelList(): Promise<DuelList>;
+  // ---- захват профкома ----
+  raidState(): Promise<RaidState | null>;
+  raidHit(dmg: number): Promise<RaidHit>;
+  staffRaidSet(hp: number): Promise<RaidState>;
+  staffRaidReset(): Promise<RaidState>;
 }
 
-export { grantByCaps, taskAvailable, markDone } from './rules';
+export { grantGameCoins, taskAvailable, markDone } from './rules';
 
 import { DemoBackend } from './backend-demo';
 import { OnlineBackend } from './backend-online';

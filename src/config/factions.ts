@@ -5,7 +5,7 @@ export type FactionId =
   | 'inei' | 'ire' | 'gpi' | 'igvie' | 'ievt' | 'iete' | 'enmi' | 'itae' | 'ivti' | 'iee' | 'profkom';
 
 export type Totem =
-  | 'raccoon' | 'tigers' | 'panther' | 'otter' | 'fox' | 'eagle' | 'wolf' | 'fire' | 'wave' | 'manul' | 'bolt';
+  | 'raccoon' | 'tigers' | 'panther' | 'otter' | 'fox' | 'eagle' | 'wolf' | 'fire' | 'wave' | 'penguin' | 'manul' | 'bolt';
 
 /** Бонус фракции в RPG-части (бои кампании, отряд, награды). */
 export interface RpgPerk {
@@ -58,7 +58,7 @@ export const FACTIONS: Faction[] = [
   { id: 'itae', short: 'ИТАЭ', totem: 'fire', totemName: 'Огонь', color: '#2c2ca8', colorDark: '#0d0d6f', playable: true,
     ability: { name: 'Разогрев', text: '30 секунд комбо растёт вдвое быстрее' },
     perk: { name: 'Энергия', text: 'Найм активистов на 15% дешевле', effect: { hireCost: 0.15 } } },
-  { id: 'ivti', short: 'ИВТИ', totem: 'wave', totemName: 'Волна', color: '#2b9fcb', colorDark: '#0f4a60', playable: true,
+  { id: 'ivti', short: 'ИВТИ', totem: 'penguin', totemName: 'Пингвин Пиня', color: '#2b9fcb', colorDark: '#0f4a60', playable: true,
     ability: { name: 'Прилив', text: 'Пять посетителей приходят с готовым бланком' },
     perk: { name: 'Девятый вал', text: 'После победы следующий бой +10% к атаке', effect: { streak: 0.1 } } },
   { id: 'iee', short: 'ИЭЭ', totem: 'manul', totemName: 'Манул', color: '#b4239a', colorDark: '#520f46', playable: true,

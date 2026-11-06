@@ -12,10 +12,17 @@ export const PLAYER_LEVELS = [
   { name: 'Легенда ППО', min: 2500 },
 ];
 
-/** Лимит рейтинга в сутки от самой игры (мини-игры, кампания, стычки). Задания выезда — вне лимита. */
-export const DAILY_GAME_RATING_CAP = 100;
-/** Лимит одной мини-игры в сутки (лучший результат дня). */
-export const DAILY_MINIGAME_CAP = 30;
+// Баллы (рейтинг) — только за образовалку и задания. Мини-игры, кампания и стычки дают профкоины.
+/** Сколько профкоинов за одно «очко результата» мини-игры (результат дня 0–30 → до 300 профкоинов). */
+export const GAME_COINS_PER_POINT = 10;
+/** Бонус за лучший результат дня в одной игре — не больше. */
+export const DAILY_MINIGAME_COINS = 300;
+/** Все бонусы мини-игр и кампании за сутки — не больше. */
+export const DAILY_GAME_COINS = 1500;
+/** Победа в стычке на карте. */
+export const SKIRMISH_WIN_COINS = 200;
+/** @deprecated оставлено для старых подсказок: баллов от игр больше нет */
+export const DAILY_GAME_RATING_CAP = 0;
 
 /** Награда за лекцию (idle). */
 export const IDLE = {
@@ -41,14 +48,13 @@ export const MAX_STARS = 5;
 /** Отряд небольшой — 4 активиста, чтобы все их умения помещались в ячейки. */
 export const SQUAD_SIZE = 4;
 
-/** Ежедневный подарок по дням подряд. */
+/** Подарок дня: выезд длится два дня — 7 и 8 ноября, у каждого дня свой подарок (забрать можно раз в день). */
 export const DAILY_GIFT = [
-  { coins: 300, scrolls: 0 },
-  { coins: 400, scrolls: 1 },
-  { coins: 500, scrolls: 0 },
-  { coins: 600, scrolls: 1 },
-  { coins: 800, scrolls: 2 },
+  { day: '2026-11-07', label: '7 ноября', coins: 2000, scrolls: 3 },
+  { day: '2026-11-08', label: '8 ноября', coins: 3500, scrolls: 5 },
 ];
+/** Какой подарок сегодня: 8 ноября и позже — второй, иначе первый. */
+export const giftIndex = (day: string) => (day >= DAILY_GIFT[1].day ? 1 : 0);
 /** «Зайти в игру» — 10 рейтинга в день (задание из концепции). */
 export const DAILY_LOGIN_RATING = 10;
 

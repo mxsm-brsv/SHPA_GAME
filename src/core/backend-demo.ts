@@ -9,11 +9,17 @@ import { DEMO_ROSTER, ROSTER_SALT } from '../config/roster-demo';
 import { sha256Hex } from '../lib/sha256';
 import { LECTURE_ROTATE_S, PERSONAL_ROTATE_S, cleanCode, codeMatches, groupDigits, normFio, normGroup, parseScanned, randomCode, randomSecret } from './codes';
 import { checkLocal, rightAnswerText, type CheckResult, type Question } from './questions';
-import { grantByCaps, markDone, taskAvailable } from './rules';
+import { markDone, taskAvailable } from './rules';
 import { mskDay, migrate, newState, type GameState, type Role } from './state';
 import { squadPower } from './logic';
-import { botEventScores, closeEvent, eventKey, eventSlot, forceEvent, newWorld, nextRoundAt, resolveRoundDemo, type Order, type WorldState } from './world';
-import type {
+import { botEventScores, closeEvent, eventKey, eventSlot, forceEvent, newWorld, nextRoundAt, payWarCoins, resolveRoundDemo, type Order, type WorldState } from './world';
+import { SKIRMISH_WIN_COINS } from '../config/economy';
+import { plural } from '../lib/dom';
+import { VOTE_DEFAULT_TITLE, defaultVoteTeams, type VoteAction, type VoteState } from './vote';
+import type { RaidHit, RaidState } from './raid';
+import type { CasinoStats } from './casino';
+import type { Duel, DuelAnswer, DuelList } from './duel';
+import type { CodeWord,
   Announcement, Backend, ClanMember, ClanView, FactionRow, GameConfig, LeaderRow, LectureSession, LoginParams, LoginResult,
   MySubmission, Note, PlayerRef, QrSessionInput, RosterRow, SharedTest, Submission, SubmitResult, TaskPayload, UserQuestion, Wallet,
   DutyZone, TeamMember,
@@ -25,7 +31,8 @@ const LS_SESSION = 'pbgame.session';
 const LS_WORLD = 'pbgame.world';
 const LS_SUBS = 'pbgame.subs';
 const LS_CLAN = 'pbgame.clan';
-const LS_MERCH = 'pbgame.merch';
+const LS_MERCH = 'pbgame.merch7';
+const LS_CASINO_PTS = 'pbgame.casinoPts';
 const LS_ORDERS = 'pbgame.orders';
 const LS_LECT = 'pbgame.lectures';
 const LS_LIVE = 'pbgame.live';
@@ -36,6 +43,15 @@ const LS_SHARED = 'pbgame.sharedTests';
 const LS_UQ = 'pbgame.userQuestions';
 const LS_BANKX = 'pbgame.bankExtra';
 const LS_DUTY = 'pbgame.duty';
+const LS_VOTE = 'pbgame.vote';
+const LS_RAID = 'pbgame.raid';
+const LS_DUELS = 'pbgame.duels';
+const LS_WORDS = 'pbgame.words';
+/** Слово → вид для сравнения: как на сервере (регистр, ё, пробелы и знаки, латиница-двойники). */
+const wordNorm = (p: string) => p.replace(/ё/g, 'е').replace(/Ё/g, 'Е').toUpperCase().replace(/[ABEKMHOPCTXY]/g, (c) => 'АВЕКМНОРСТХУ'['ABEKMHOPCTXY'.indexOf(c)]).replace(/[^А-ЯA-Z0-9]/g, '');
+interface DemoWord extends CodeWord { norm: string; who: string[] }
+/** Поединок в демо: соперник — бот, отвечает по одному вопросу раз в несколько секунд. */
+interface DemoDuel { id: string; code: string; qids: string[]; created: number; mine: boolean; my: { ans: Record<string, boolean>; start?: number; end?: number }; bot: { name: string; faction: FactionId; join: number; per: number; acc: number } }
 /** Сколько заданий квиза засчитывать: intro — 10 вопросов, docs — 3. */
 const QUIZ_N: Record<string, number> = { intro_quiz: 10, docs_quiz: 3 };
 const QUIZ_TOPICS: Record<string, string[] | null> = { intro_quiz: ['Устав Профсоюза', 'Профсоюз: закон', 'Профсоюз: устройство и учёт', 'СКС Профсоюза'], docs_quiz: null };
@@ -73,6 +89,9 @@ interface DemoSession { key: string; role: Role; faction: FactionId; name: strin
 interface ClanStore { anchor: number; mine: Partial<Record<FactionId, Record<BuildingId, number>>>; lastAt: number }
 interface DemoLecture extends LectureSession { secret: string; by: string[] }
 interface ExtraRow { fio: string; group: string; faction: FactionId; role: Role }
+
+/** Голосование в демо: голоса ботов, размеры команд и кто куда вписан (по ФИО). */
+type DemoVote = VoteState & { bots: Record<string, [number, number]>; sizes?: Record<string, number>; people?: Record<string, string> };
 
 export class DemoBackend implements Backend {
   mode = 'demo' as const;
@@ -175,10 +194,17 @@ export class DemoBackend implements Backend {
 
   async config(): Promise<GameConfig> {
     const c = lsJson<Partial<GameConfig>>(LS_CFG, {});
-    return { shopOpen: c.shopOpen ?? TEST_MODE, testMode: TEST_MODE, requireGroup: c.requireGroup ?? true };
+    const host = c.checkinHost ?? null;
+    return { shopOpen: c.shopOpen ?? TEST_MODE, testMode: TEST_MODE, requireGroup: c.requireGroup ?? true, checkinHost: host, canCheckin: this.staff && (!host || host.id === 'me'), casinoReveal: c.casinoReveal ?? false };
+  }
+  async staffSetCheckinHost(rosterId: string | null) {
+    if (!this.admin) throw new Error('Только админы');
+    const c = lsJson<Partial<GameConfig>>(LS_CFG, {});
+    c.checkinHost = rosterId ? { id: rosterId, name: rosterId === 'me' ? (this.state?.username ?? 'Я') : 'Другой организатор' } : null;
+    lsSet(LS_CFG, JSON.stringify(c));
+    return this.config();
   }
 
-  async addGameRating(s: GameState, source: string, value: number) { return grantByCaps(s, source, value); }
 
   async claimTask(s: GameState, task: string, payload: TaskPayload = {}): Promise<SubmitResult> {
     const t = taskById(task);
@@ -263,8 +289,23 @@ export class DemoBackend implements Backend {
   }
 
   async redeemCode(s: GameState, raw: string): Promise<SubmitResult> {
+    if (/startapp=t_/.test(raw)) return { status: 'rejected', message: 'Печатные QR тайников работают в настоящей игре. В демо — коды CACHE-01…CACHE-10' };
     const up = raw.trim().toUpperCase();
+    // кодовые слова, добавленные в панели
+    const words = this.words(), w = words.find((x) => x.norm === wordNorm(raw));
+    if (w) {
+      const me = s.username;
+      if (w.who.includes(me)) return { status: 'rejected', message: 'Это слово ты уже вводил' };
+      if (!w.active) return { status: 'rejected', message: 'Это слово больше не принимается' };
+      if (w.expires && w.expires < Date.now()) return { status: 'rejected', message: 'Время на это слово вышло' };
+      if (w.max && w.who.length >= w.max) return { status: 'rejected', message: `Опоздал: слово уже ввели первые ${w.max}` };
+      const task = w.gold ? 'egg_gold' : 'egg';
+      if (!taskAvailable(s, task)) return { status: 'rejected', message: w.gold ? 'Золотая пасхалка сегодня уже засчитана' : 'Лимит пасхалок исчерпан' };
+      w.who.push(me); this.wordsOut(words); markDone(s, task); s.rating += w.points;
+      return { status: 'approved', granted: w.points, message: `${w.gold ? 'Золотая пасхалка' : 'Кодовое слово'}! +${w.points} баллов${w.max ? ` · ты ${w.who.length}-й из ${w.max}` : ''}` };
+    }
     const egg = DEMO_EGG_CODES[up];
+    if (!egg && /[БГДЁЖЗИЙЛПФЦЧШЩЪЫЬЭЮЯбгдёжзийлпфцчшщъыьэюя]/.test(raw)) return { status: 'rejected', message: 'Такого кодового слова нет — проверь написание' };
     if (egg) {
       if (s.tasks.eggs.includes(up)) return { status: 'rejected', message: 'Эту пасхалку ты уже нашёл' };
       if (!taskAvailable(s, egg.task)) return { status: 'rejected', message: 'Лимит по этому заданию исчерпан' };
@@ -405,10 +446,11 @@ export class DemoBackend implements Backend {
       const rep = resolveRoundDemo(w, { order: mineOrder, lawShare: law, me: s, cooldown: s.war.cooldownRound === w.round });
       if (rep.my) {
         s.war.fights++;
-        if (rep.my.won) { s.war.wins++; rep.my.rating = grantByCaps(s, 'skirmish', (s.daily.byGame.skirmish ?? 0) + 10); }
+        if (rep.my.won) { s.war.wins++; rep.my.rating = 0; }
       }
       w.nextAt = nextRoundAt(Math.max(w.nextAt, now - 1)) ?? w.nextAt + 3600_000;
     }
+    payWarCoins(s, w, SKIRMISH_WIN_COINS);
     if (w.event && w.event.endAt <= now) {
       const ev = w.event;
       const res = closeEvent(w);
@@ -454,8 +496,17 @@ export class DemoBackend implements Backend {
   private orders(): MerchOrder[] { return lsJson<MerchOrder[]>(LS_ORDERS, []); }
   async merchList() { return this.items().filter((x) => x.active); }
   async wallet(s: GameState): Promise<Wallet> {
-    const spent = this.orders().filter((o) => o.status !== 'cancelled').reduce((a, o) => a + o.price, 0);
-    return { earned: s.rating, spent, balance: s.rating - spent };
+    const casino = lsJson<number>(LS_CASINO_PTS, 0);
+    const spent = this.orders().filter((o) => o.status !== 'cancelled').reduce((a, o) => a + o.price, 0) + casino;
+    return { earned: s.rating, spent, balance: s.rating - spent, casino };
+  }
+  async casinoPointsBet(amount: number) {
+    const s = this.state!;
+    const w = await this.wallet(s);
+    if (amount < 1) throw new Error('Ставка — хотя бы 1 балл');
+    if (amount > w.balance) throw new Error(`На счёте только ${Math.max(0, w.balance)} баллов`);
+    lsSet(LS_CASINO_PTS, JSON.stringify((w.casino ?? 0) + amount));
+    return { ...(await this.wallet(s)), mult: 0 as const, lost: amount };
   }
   async merchBuy(s: GameState, itemId: string) {
     const cfg = await this.config();
@@ -484,6 +535,230 @@ export class DemoBackend implements Backend {
   async lecturesOpen() {
     const now = Date.now();
     return this.lectures().filter((l) => l.closesAt > now).map(({ secret: _s, by: _b, code: _c, ...rest }) => ({ ...rest, mine: this.state?.lectures.includes(rest.id) }));
+  }
+
+  // ---------- поединки в правовухе (в демо соперник — бот) ----------
+  private words() { return lsJson<DemoWord[]>(LS_WORDS, []); }
+  private wordsOut(list: DemoWord[]) { lsSet(LS_WORDS, JSON.stringify(list)); return list.map(({ norm: _n, who, ...w }) => ({ ...w, found: who.length })); }
+  async staffWords() { return this.wordsOut(this.words()); }
+  async staffWordAdd(word: string, points: number, max: number | null, minutes: number | null, gold: boolean) {
+    const text = word.trim(), norm = wordNorm(text), list = this.words();
+    if (norm.length < 2) throw new Error('Слово слишком короткое');
+    if (points < 1 || points > 100) throw new Error('Баллы — от 1 до 100');
+    if (list.some((w) => w.norm === norm)) throw new Error('Такое слово уже есть');
+    list.unshift({ id: `w${Date.now()}`, text, norm, hidden: false, points, gold, max: max || null, expires: minutes ? Date.now() + minutes * 60000 : null, active: true, found: 0, who: [], by: this.state?.username ?? null, created: Date.now() });
+    return this.wordsOut(list);
+  }
+  async staffWordSet(id: string, active: boolean) { const list = this.words(); const w = list.find((x) => x.id === id); if (w) w.active = active; return this.wordsOut(list); }
+  async staffWordDelete(id: string) { return this.wordsOut(this.words().filter((x) => x.id !== id)); }
+  private duels() { return lsJson<Record<string, DemoDuel>>(LS_DUELS, {}); }
+  private saveDuels(d: Record<string, DemoDuel>) { lsSet(LS_DUELS, JSON.stringify(d)); }
+  private duelOut(d: DemoDuel): Duel {
+    const now = Date.now();
+    const bStart = d.created + d.bot.join;
+    const bAns = now < bStart ? 0 : Math.min(d.qids.length, Math.floor((now - bStart) / d.bot.per));
+    const bOk = d.qids.slice(0, bAns).filter((q) => hash01(d.id + q) < d.bot.acc).length;
+    const bDone = bAns >= d.qids.length;
+    const bMs = bDone ? d.qids.length * d.bot.per : null;
+    const myN = Object.keys(d.my.ans).length, myOk = Object.values(d.my.ans).filter(Boolean).length;
+    const myDone = !!d.my.end;
+    const myMs = d.my.end && d.my.start ? d.my.end - d.my.start : null;
+    let result: Duel['result'] = null;
+    if (myDone && bDone) result = myOk > bOk ? 'win' : myOk < bOk ? 'loss' : (myMs ?? 0) < (bMs ?? 0) ? 'win' : (myMs ?? 0) > (bMs ?? 0) ? 'loss' : 'draw';
+    return {
+      id: d.id, code: d.code, n: d.qids.length, qids: d.qids, created: d.created, me: d.mine ? 'a' : 'b',
+      my: { answered: myN, right: myOk, started: !!d.my.start, done: myDone, ms: myMs },
+      opp: now < bStart && d.mine ? null : { name: d.bot.name, faction: d.bot.faction, answered: bAns, right: myDone ? bOk : null, done: bDone, ms: bMs },
+      result, score: result ? [myOk, bOk] : null,
+    };
+  }
+  private newDemoDuel(mine: boolean, code?: string): DemoDuel {
+    const pool = this.bankAll().filter((q) => q.format !== 'input');
+    const qids = Array.from({ length: 7 }, () => pool[Math.floor(Math.random() * pool.length)].id);
+    const bots = BOTS.filter((b) => b.faction !== this.state?.faction);
+    const b = bots[Math.floor(Math.random() * bots.length)] ?? BOTS[0];
+    return { id: `d${Date.now().toString(36)}${Math.floor(Math.random() * 1e4)}`, code: code ?? Math.random().toString(36).slice(2, 7).toUpperCase(), qids,
+      created: mine ? Date.now() : Date.now() - 60_000, mine, my: { ans: {} },
+      bot: { name: b.name, faction: b.faction, join: mine ? 4000 : -60_000, per: 2500 + Math.random() * 2500, acc: 0.45 + Math.random() * 0.4 } };
+  }
+  async duelCreate() {
+    const all = this.duels();
+    const d = this.newDemoDuel(true);
+    all[d.id] = d; this.saveDuels(all);
+    return this.duelOut(d);
+  }
+  async duelJoin(code: string) {
+    const c = code.trim().toUpperCase();
+    const all = this.duels();
+    const ex = Object.values(all).find((x) => x.code === c);
+    if (ex) return this.duelOut(ex);
+    if (c.length !== 5) throw new Error('Вызов не найден или устарел — проверь код');
+    const d = this.newDemoDuel(false, c);
+    all[d.id] = d; this.saveDuels(all);
+    return this.duelOut(d);
+  }
+  async duelStart(id: string) {
+    const all = this.duels(); const d = all[id];
+    if (!d) throw new Error('Поединок не найден');
+    d.my.start ??= Date.now(); this.saveDuels(all);
+    return this.duelOut(d);
+  }
+  async duelAnswer(id: string, q: Question, given: string | number | boolean): Promise<DuelAnswer> {
+    const all = this.duels(); const d = all[id];
+    if (!d || !d.my.start) throw new Error('Сначала начни поединок');
+    if (q.id in d.my.ans) throw new Error('На этот вопрос уже ответил');
+    const r = given === '__timeout__' ? { ...checkLocal(q, '__timeout__'), correct: false } : checkLocal(q, given);
+    d.my.ans[q.id] = r.correct;
+    if (Object.keys(d.my.ans).length >= d.qids.length) d.my.end = Date.now();
+    this.saveDuels(all);
+    return { ...r, duel: this.duelOut(d) };
+  }
+  async duelState(id: string) {
+    const d = this.duels()[id];
+    if (!d) throw new Error('Поединок не найден');
+    return this.duelOut(d);
+  }
+  async duelList(): Promise<DuelList> {
+    const mine = Object.values(this.duels()).sort((a, b) => b.created - a.created).slice(0, 15).map((d) => this.duelOut(d));
+    const open = BOTS.filter((b) => b.faction !== this.state?.faction).slice(0, 2).map((b, i) => ({ code: `DEMO${i + 1}`, name: b.name, faction: b.faction, created: Date.now() - (i + 1) * 7 * 60_000, right: i === 0 ? 5 : null }));
+    const wins = mine.filter((d) => d.result === 'win').length;
+    const board = [{ name: BOTS[0].name, faction: BOTS[0].faction, wins: 4, played: 6 }, { name: BOTS[3].name, faction: BOTS[3].faction, wins: 2, played: 5 }];
+    if (wins) board.push({ name: this.state?.username ?? 'Я', faction: (this.state?.faction ?? 'ivti') as FactionId, wins, played: mine.filter((d) => d.result).length });
+    return { mine, open, board: board.sort((a, b) => b.wins - a.wins) };
+  }
+
+  // ---------- захват профкома (в демо — боссы без имён, прогресс в браузере) ----------
+  private raidData() {
+    return lsJson<{ hp: number; prog: Record<string, { boss: number; dmg: number; last: number; done?: number }>; hits: number[]; holder: { faction: FactionId; at: number } | null }>(LS_RAID, { hp: 45000, prog: {}, hits: [], holder: null });
+  }
+  private raidBosses(hp: number) {
+    const titles = ['Организатор', 'Организатор', 'Организатор', 'Организатор', 'Организатор', 'Организатор', 'Организатор', 'Организатор', 'Зам. председателя', 'Председатель'];
+    return titles.map((title, i, a) => ({ i, name: i === a.length - 1 ? 'Председатель профкома' : `Организатор №${i + 1}`, title, hp: Math.round(hp * (1 + 0.25 * i) * (i === a.length - 1 ? 2.5 : 1)) }));
+  }
+  private raidOut(): RaidState {
+    const d = this.raidData();
+    const bosses = this.raidBosses(d.hp);
+    const per = TEST_MODE ? 2 : 20;
+    const f = this.state?.faction && this.state.faction !== 'profkom' ? this.state.faction : null;
+    const pr = f ? d.prog[f] ?? { boss: 0, dmg: 0, last: Date.now() } : null;
+    const cur = pr ? bosses[pr.boss] : null;
+    const eff = pr && cur ? Math.max(0, pr.dmg - Math.floor(cur.hp * 0.1 * Math.max(0, (Date.now() - pr.last) / 3600_000))) : 0;
+    const last = d.hits[0] ?? 0;
+    return {
+      bosses, cooldownMin: per, holder: d.holder,
+      my: f && pr ? { faction: f, boss: pr.boss, dmg: eff, hp: cur?.hp ?? 0, done: pr.boss >= bosses.length, cooldownLeft: Math.max(0, last + per * 60_000 - Date.now()), power: Math.max(600, squadPower(this.state!).raw) } : null,
+      leaders: Object.entries(d.prog).map(([k, v]) => ({ faction: k as FactionId, boss: v.boss, done: !!v.done })).sort((a, b) => b.boss - a.boss),
+    };
+  }
+  async raidState() { return this.raidOut(); }
+  async raidHit(dmg: number): Promise<RaidHit> {
+    const s = this.state;
+    if (!s || !s.faction || s.faction === 'profkom') throw new Error('Организаторы — боссы, штурмуют участники');
+    const st = this.raidOut();
+    if (!st.my) throw new Error('Сначала выбери профбюро');
+    if (st.my.cooldownLeft > 0) throw new Error(`Отряд отдыхает: штурм раз в ${st.cooldownMin} ${plural(st.cooldownMin, 'минуту', 'минуты', 'минут')}`);
+    if (st.my.done) throw new Error('Твоё профбюро уже прошло всех боссов');
+    const d = this.raidData();
+    const cur = st.bosses[st.my.boss];
+    const dealt = Math.max(0, Math.min(Math.round(dmg), st.my.power * 6, cur.hp - st.my.dmg));
+    d.hits.unshift(Date.now()); d.hits = d.hits.slice(0, 20);
+    let defeated = false, captured = false;
+    if (st.my.dmg + dealt >= cur.hp) {
+      defeated = true;
+      const nb = st.my.boss + 1;
+      d.prog[s.faction] = { boss: nb, dmg: 0, last: Date.now(), done: nb >= st.bosses.length ? Date.now() : undefined };
+      if (nb >= st.bosses.length) { captured = true; d.holder = { faction: s.faction, at: Date.now() }; }
+    } else d.prog[s.faction] = { boss: st.my.boss, dmg: st.my.dmg + dealt, last: Date.now() };
+    lsSet(LS_RAID, JSON.stringify(d));
+    return { dealt, defeated, captured, boss: cur.name, state: this.raidOut() };
+  }
+  async staffRaidSet(hp: number) { const d = this.raidData(); d.hp = Math.max(1000, Math.min(1_000_000, Math.round(hp))); lsSet(LS_RAID, JSON.stringify(d)); return this.raidOut(); }
+  async staffRaidReset() { if (!this.admin) throw new Error('Только админы'); lsSet(LS_RAID, JSON.stringify({ hp: this.raidData().hp, prog: {}, hits: [], holder: null })); return this.raidOut(); }
+
+  // ---------- голосование (в демо голосуют ещё 40 ботов, чтобы на экране было движение) ----------
+  private vote(): DemoVote {
+    const v = lsJson<DemoVote | null>(LS_VOTE, null);
+    // старое демо с командами-профбюро — начинаем заново с номерными командами
+    if (v && v.teams.every((t) => /^t\d+$/.test(t.id))) return v;
+    return { round: 1, title: VOTE_DEFAULT_TITLE, status: 'idle', current: null, reveal: false, teams: defaultVoteTeams().map((t) => ({ ...t, za: 0, protiv: 0 })), my: {}, voters: 0, at: Date.now(), bots: {} };
+  }
+  private voteOut(v: DemoVote): VoteState {
+    v.teams = v.teams.map((t) => ({ ...t, za: (v.bots[t.id]?.[0] ?? 0) + (v.my[t.id] === 1 ? 1 : 0), protiv: (v.bots[t.id]?.[1] ?? 0) + (v.my[t.id] === -1 ? 1 : 0), size: v.people ? Object.values(v.people).filter((x) => x === t.id).length : v.sizes?.[t.id] ?? 0 }));
+    v.voters = Math.min(40, Math.max(0, ...Object.values(v.bots).map(([a, b]) => a + b))) + (Object.keys(v.my).length ? 1 : 0);
+    lsSet(LS_VOTE, JSON.stringify(v));
+    const { bots: _b, sizes: _s, people: _p, ...out } = v;
+    return { ...out, myFaction: this.state?.faction ?? null };
+  }
+  async voteState() {
+    const v = this.vote();
+    if (v.status === 'open') {
+      // боты голосуют понемногу: у каждой команды свой «характер», чтобы итог не был одинаковым
+      for (const t of v.teams) {
+        if (v.current && v.current !== t.id) continue;
+        const b = v.bots[t.id] ?? [0, 0];
+        const like = 0.35 + ((t.name.charCodeAt(0) * 37 + t.name.length * 11) % 50) / 100;
+        for (let k = 0; k < 3 && b[0] + b[1] < 40; k++) if (Math.random() < 0.6) b[Math.random() < like ? 0 : 1]++;
+        v.bots[t.id] = b;
+      }
+    }
+    return this.voteOut(v);
+  }
+  async voteCast(team: string, val: 1 | -1 | 0) {
+    const v = this.vote();
+    if (v.status !== 'open') throw new Error('Голосование сейчас закрыто');
+    if (v.current && v.current !== team) throw new Error('Сейчас голосуем за другую команду');
+    const t = v.teams.find((x) => x.id === team);
+    if (!t) throw new Error('Нет такой команды');
+    if (t.id === v.myTeam || (t.faction && t.faction === this.state?.faction)) throw new Error('За свою команду голосовать нельзя');
+    if (val === 0) delete v.my[team]; else v.my[team] = val;
+    return this.voteOut(v);
+  }
+  async staffVoteSetup(title: string, teams: { id: string; name: string; faction: FactionId | null }[]) {
+    if (teams.length < 2) throw new Error('Нужно хотя бы две команды');
+    const v = this.vote();
+    const ids = new Set(teams.map((t) => t.id));
+    const vp = v as typeof v & { people?: Record<string, string> };
+    const people = Object.fromEntries(Object.entries(vp.people ?? {}).filter(([, t]) => ids.has(t)));
+    const keep = !!v.myTeam && ids.has(v.myTeam);
+    return this.voteOut({ ...v, round: v.round + 1, title: title.trim() || VOTE_DEFAULT_TITLE, teams: teams.map((t) => ({ ...t, za: 0, protiv: 0 })), status: 'idle', current: null, reveal: false, my: {}, bots: {}, at: Date.now(),
+      myTeam: keep ? v.myTeam : null, mates: keep ? v.mates : [], people } as typeof v);
+  }
+  /** В демо: кто вписан в команды — хранится в браузере; «я» — если вписано моё имя. */
+  async voteJoin(fio: string, team: string) {
+    const v = this.vote() as DemoVote;
+    if (!v.teams.some((t) => t.id === team)) throw new Error('Выбери команду');
+    const name = fio.trim().replace(/\s+/g, ' ');
+    if (name.split(' ').length < 2) throw new Error('Нет такого ФИО в списке выезда — проверь написание (фамилия и имя)');
+    const people = v.people ?? {};
+    if (people[name] && people[name] !== team && v.status === 'open') throw new Error('Команду уже не поменять — голосование идёт. Попроси организатора');
+    people[name] = team;
+    const me = (this.state?.username ?? '').toLowerCase();
+    const isMe = name.toLowerCase().split(' ').some((w) => w.length > 2 && me.includes(w));
+    const sizes: Record<string, number> = {};
+    Object.values(people).forEach((t) => { sizes[t] = (sizes[t] ?? 0) + 1; });
+    const next = { ...v, people, sizes, myTeam: isMe ? team : v.myTeam } as typeof v;
+    if (isMe) delete next.my[team];
+    next.mates = next.myTeam ? Object.entries(people).filter(([, t]) => t === next.myTeam).map(([n]) => n) : [];
+    return { ...this.voteOut(next), joined: name };
+  }
+  async staffVoteMembers() {
+    const v = this.vote() as DemoVote;
+    return v.teams.map((t) => ({ team: t.id, name: t.name, people: Object.entries(v.people ?? {}).filter(([, x]) => x === t.id).map(([n]) => ({ id: n, name: n })) }));
+  }
+  async staffVoteKick(id: string | number) {
+    const v = this.vote() as DemoVote;
+    if (v.people) delete v.people[String(id)];
+    return this.voteOut(v);
+  }
+  async staffVoteControl(action: VoteAction, team: string | null = null) {
+    let v = this.vote();
+    if (action === 'open') v = { ...v, status: 'open', current: team, reveal: false };
+    else if (action === 'close') v = { ...v, status: 'closed', current: null };
+    else if (action === 'reveal') v = { ...v, status: 'closed', current: null, reveal: true };
+    else if (action === 'hide') v = { ...v, reveal: false };
+    else v = { ...v, round: v.round + 1, status: 'idle', current: null, reveal: false, my: {}, bots: {} };
+    v.at = Date.now();
+    return this.voteOut(v);
   }
 
   // ---------- эфир ----------
@@ -558,14 +833,21 @@ export class DemoBackend implements Backend {
     BOTS.forEach((b) => rows.push({ id: `bot${b.i}`, name: b.name, faction: b.faction, rating: this.botRating(b) }));
     return rows.filter((r) => r.name.toLowerCase().includes(q.toLowerCase()));
   }
-  async staffGrant(playerId: string, task: string, amount: number) {
+  async staffGrant(playerId: string, task: string, amount: number, note?: string) {
     const s = this.state;
     if (playerId === 'me' && s) {
+      if (amount < 0) {
+        const g = -Math.min(-amount, Math.max(0, s.rating));
+        if (!g) throw new Error('У участника 0 баллов — снимать нечего');
+        s.rating += g; await this.save(s);
+        this.note(`Организатор снял ${-g} баллов${note ? `: ${note}` : ''}`, 'bad');
+        return `Снято ${-g} баллов · теперь ${s.rating}`;
+      }
       s.rating += amount; markDone(s, task); await this.save(s);
-      this.note(`⭐ Организатор начислил +${amount} баллов: ${taskById(task)?.title ?? 'бонус'}`, 'ok');
+      this.note(`Организатор начислил +${amount} баллов: ${note || (taskById(task)?.title ?? 'бонус')}`, 'ok');
       return `Начислено ${amount} баллов: ${s.username}`;
     }
-    return `Начислено ${amount} (бот, в демо не сохраняется)`;
+    return amount < 0 ? `Снято ${-amount} (бот, в демо не сохраняется)` : `Начислено ${amount} (бот, в демо не сохраняется)`;
   }
   async staffForceRound() {
     const w = this.loadWorld();
@@ -666,14 +948,19 @@ export class DemoBackend implements Backend {
     if (!this.admin) throw new Error('Сбросить прогресс могут только админы');
     if (confirm.trim().toUpperCase() !== 'СБРОС') throw new Error('Для подтверждения введи слово СБРОС');
     this.frozen = true;
-    try { [LS_WORLD, LS_SUBS, LS_CLAN, LS_ORDERS, LS_LECT, LS_LIVE, LS_NOTES, LS_DUTY, 'pbgame.prep'].forEach((k) => localStorage.removeItem(k)); } catch { /* приватный режим */ }
+    try { [LS_WORLD, LS_SUBS, LS_CLAN, LS_ORDERS, LS_LECT, LS_LIVE, LS_NOTES, LS_DUTY, LS_VOTE, LS_RAID, LS_DUELS, 'pbgame.prep'].forEach((k) => localStorage.removeItem(k)); } catch { /* приватный режим */ }
     lsDel(LS_KEY); lsDel(LS_SESSION); // как на сервере: регистрация тоже сбрасывается — вход заново
     return 'Демо: всё сброшено, войди заново';
   }
-  async staffSetSetting(key: 'shop_open' | 'require_group', value: boolean) {
+  async staffSetSetting(key: 'shop_open' | 'require_group' | 'casino_reveal', value: boolean) {
     const c = lsJson<Partial<GameConfig>>(LS_CFG, {});
-    if (key === 'shop_open') c.shopOpen = value; else c.requireGroup = value;
+    if (key === 'shop_open') c.shopOpen = value; else if (key === 'casino_reveal') c.casinoReveal = value; else c.requireGroup = value;
     lsSet(LS_CFG, JSON.stringify(c));
+  }
+  /** В демо: моя статистика плюс 30 «участников», которые крутили так же. */
+  async casinoStats(): Promise<CasinoStats> {
+    const m = this.state?.casino ?? { bet: 0, won: 0, spins: 0, near: 0 };
+    return { players: 31, spins: m.spins + 1240, bet: m.bet + 186000, won: m.won + 117200, near: m.near + 610, points: lsJson<number>(LS_CASINO_PTS, 0) + 2350, pointsPlayers: 9, pointsSpins: (this.state?.casino?.ptsSpins ?? 0) + 27 };
   }
 
   /** Для тест-панели: текущий QR-код бота, чтобы проверить знакомство. */
