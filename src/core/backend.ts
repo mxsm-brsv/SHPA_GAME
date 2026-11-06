@@ -9,6 +9,7 @@ import type { Order, WorldState } from './world';
 import type { VoteAction, VoteState } from './vote';
 import type { RaidHit, RaidState } from './raid';
 import type { CasinoStats } from './casino';
+import type { Duel, DuelAnswer, DuelList } from './duel';
 
 export interface LeaderRow { name: string; faction: FactionId | null; rating: number; contributed: number; power: number; me?: boolean; bot?: boolean }
 export interface FactionRow { faction: FactionId; players: number; limit: number; rating: number; influence: number; xp: number; ratusha: number; score: number }
@@ -148,6 +149,19 @@ export interface Backend {
   voteCast(team: string, v: 1 | -1 | 0): Promise<VoteState>;
   staffVoteSetup(title: string, teams: { id: string; name: string; faction: FactionId | null }[]): Promise<VoteState>;
   staffVoteControl(action: VoteAction, team?: string | null): Promise<VoteState>;
+  /** Вписать человека (себя или товарища) по ФИО в команду. Группа — только если тёзки. */
+  voteJoin(fio: string, team: string, group?: string): Promise<VoteState & { joined?: string }>;
+  /** Составы команд с именами (только организаторам). */
+  staffVoteMembers(): Promise<{ team: string; name: string; people: { id: string | number; name: string }[] }[]>;
+  /** Организатор: убрать человека из команды. */
+  staffVoteKick(rosterId: string | number): Promise<VoteState>;
+  // ---- поединки в правовухе ----
+  duelCreate(): Promise<Duel>;
+  duelJoin(code: string): Promise<Duel>;
+  duelStart(id: string): Promise<Duel>;
+  duelAnswer(id: string, q: Question, given: string | number | boolean): Promise<DuelAnswer>;
+  duelState(id: string): Promise<Duel>;
+  duelList(): Promise<DuelList>;
   // ---- захват профкома ----
   raidState(): Promise<RaidState | null>;
   raidHit(dmg: number): Promise<RaidHit>;

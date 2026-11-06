@@ -103,7 +103,7 @@ export function showWelcome(app: App) {
     ${staff ? '<div class="small muted">Панель организатора — справа на базе. Там отметки на блоках, мерч, эфир, модерация и экран для актового.</div>' : `<div class="card" style="text-align:left;width:100%">
       <div class="small muted">Постоянный бонус ПБ</div><div><b>${esc(f.perk.name)}:</b> ${esc(f.perk.text)}</div>
       <div class="small muted" style="margin-top:8px">Как играть</div>
-      <div class="small">Тапай по ратуше — получаешь профкоины, а ПБ растёт. Все игроки ПБ качают одни и те же здания. Баллы — за задания, блоки (QR на экране), игры и правовуху. Их тратят в магазине мерча, а рейтинг от покупок не падает.</div>
+      <div class="small">Тапай по ратуше — получаешь профкоины, а ПБ растёт. Все игроки ПБ качают одни и те же здания. Баллы — за задания и образовалку (блоки по QR на экране), игры дают профкоины. Их тратят в магазине мерча, а рейтинг от покупок не падает.</div>
     </div>`}
     <button class="btn btn-gold btn-block" data-close>Поехали</button>
   </div>`);

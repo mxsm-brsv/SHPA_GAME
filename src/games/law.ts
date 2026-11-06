@@ -7,6 +7,7 @@ import { haptic } from '../core/telegram';
 import { $, el, esc, modal, onAct, toast } from '../lib/dom';
 import type { App } from '../ui/app';
 import { reportResult, type PlayCtx } from './kit';
+import { openDuelHub } from './duel';
 
 const FORMAT_LABEL = { yesno: 'Да или нет', choice: 'Выбери ответ', input: 'Впиши ответ' } as const;
 const RING_N = 10;
@@ -21,8 +22,10 @@ export function caseOfDay(qs: Question[]): Question | null {
   return sorted[day % sorted.length];
 }
 
-interface AskOpts {
+export interface AskOpts {
   q: Question;
+  /** Своя проверка (поединок проверяет сервер по своему поединку) */
+  check?: (q: Question, given: string | number | boolean) => Promise<CheckResult>;
   n?: string;                 // «3 / 10»
   timeLimit?: number;         // секунд, если ринг
   onDone: (r: CheckResult & { timeLeft: number; timedOut: boolean }) => void;
@@ -31,7 +34,7 @@ interface AskOpts {
 }
 
 /** Рисует один вопрос в контейнер и возвращает функцию остановки таймера. */
-function ask(app: App, box: HTMLElement, o: AskOpts) {
+export function ask(app: App, box: HTMLElement, o: AskOpts) {
   const { q } = o;
   const order = q.format === 'choice' ? shuffledOptionOrder(q) : [];
   const letters = ['А', 'Б', 'В', 'Г'];
@@ -56,7 +59,7 @@ function ask(app: App, box: HTMLElement, o: AskOpts) {
     clearInterval(timer);
     const tl = timeLeft();
     box.querySelectorAll<HTMLButtonElement>('.ans, [data-send]').forEach((b) => (b.disabled = true));
-    const res = await app.backend.checkAnswer(q, given);
+    const res = await (o.check ? o.check(q, given) : app.backend.checkAnswer(q, given));
     const s = app.state;
     (res.correct ? s.law.right : s.law.wrong)[q.id] = ((res.correct ? s.law.right : s.law.wrong)[q.id] ?? 0) + 1;
     haptic(res.correct ? 'ok' : 'bad');
@@ -133,6 +136,8 @@ export function openLaw(app: App) {
       <div class="grow"><b>Дело дня</b><div class="small muted">${caseDone ? 'Уже решено сегодня — новое завтра' : `Один вопрос в день · +${CASE_RATING} баллов за верный ответ`}</div></div>${starSvg(18)}</button>
     <button class="card row" data-act="ring" style="text-align:left">${icon('target', 30, '#b26bff')}
       <div class="grow"><b>Правовой ринг</b><div class="small muted">${RING_N} вопросов на время, серия умножает очки · ${RATING_PER_RIGHT * GAME_COINS_PER_POINT} профкоинов за верный, до ${DAILY_MINIGAME_COINS} в день</div></div></button>
+    <button class="card row" data-act="duel" style="text-align:left;border-color:#b26bff">${icon('swords', 30, '#ff8a8a')}
+      <div class="grow"><b>Поединок с участником</b><div class="small muted">Брось вызов или прими чужой: одни и те же 7 вопросов, кто больше верных</div></div></button>
     <button class="card row" data-act="cards" data-topic="" style="text-align:left">${icon('cards', 30, '#4fd1a5')}
       <div class="grow"><b>Карточки</b><div class="small muted">Как в Quizlet: вопрос → переверни → ответ и норма</div></div></button>
     <div class="section-h">Тренировка по темам</div>
@@ -148,6 +153,7 @@ export function openLaw(app: App) {
   onAct(node, {
     exit: () => app.closeOverlay(),
     ring: () => openRing(app),
+    duel: () => openDuelHub(app),
     train: (t) => openTrain(app, t.dataset.topic!),
     cards: (t) => openCards(app, t.dataset.topic || ''),
     case: () => { if (caseDone) { toast('Дело дня уже решено', 'info'); return; } if (cod) openCase(app, cod); },
@@ -213,8 +219,10 @@ export function openRing(app: App, ctx?: PlayCtx) {
       <div class="row" style="justify-content:center;gap:6px">${coinSvg(18)}<b>+${got} профкоинов</b></div>
       ${got < value * GAME_COINS_PER_POINT ? `<div class="small muted">Бонус дня — за новый лучший результат, до ${DAILY_MINIGAME_COINS} профкоинов. Баллы дают задания и образовалка («Дело дня» — тоже задание).</div>` : ''}
       <button class="btn btn-gold btn-block" data-again>Ещё раунд</button>
+      <button class="btn btn-blue btn-block" data-duel>${icon('swords', 18)} Поединок с участником</button>
       <button class="btn btn-ghost btn-block" data-act="exit">Выйти</button></div>`;
     $(box, '[data-again]').addEventListener('click', () => { app.closeOverlay(); openRing(app, ctx); });
+    $(box, '[data-duel]').addEventListener('click', () => { app.closeOverlay(); openDuelHub(app); });
     app.update(false);
   };
   onAct(node, { exit: () => { stop(); app.closeOverlay(); } });

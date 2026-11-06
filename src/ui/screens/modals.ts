@@ -63,7 +63,7 @@ export async function openRating(app: App, start: 'f' | 'p' = 'f') {
           return `<div class="li ${p.me ? 'me' : ''}"><div class="rank ${i < 3 ? 'top' : ''}">${i + 1}</div>${totemSvg(f, 32)}
             <div class="grow"><div style="font-weight:700">${esc(p.name)}</div><div class="small muted">${f.short} · ${pSort === 'rating' ? `вклад ${fmt(p.contributed)}` : `${fmt(p.rating)} баллов`}</div></div>
             <b class="gold">${fmt(p[pSort])}</b></div>`;
-        }).join('') + `<div class="small muted center">${pSort === 'rating' ? 'Баллы — за задания, блоки, игры и правовуху.' : 'Вклад — опыт, который участник принёс зданиям своего ПБ: тапы, вложенные профкоины, победы.'}${app.backend.mode === 'demo' ? ' Демо: соперники — боты.' : ''}</div>`;
+        }).join('') + `<div class="small muted center">${pSort === 'rating' ? 'Баллы — за задания и образовалку (блоки, квизы). Игры дают профкоины.' : 'Вклад — опыт, который участник принёс зданиям своего ПБ: тапы, вложенные профкоины, победы.'}${app.backend.mode === 'demo' ? ' Демо: соперники — боты.' : ''}</div>`;
     } else {
       const max = Math.max(1, ...data.factions.map((r) => r.score));
       body.innerHTML = data.factions.map((r, i) => {

@@ -113,6 +113,8 @@ export class App {
   private async handleStartParam() {
     const p = this.startParam;
     this.startParam = '';
+    const dm = p.match(/^duel_([A-Za-z0-9]{5})$/);
+    if (dm) { const { openDuelHub } = await import('../games/duel'); if (!this.questions.length) this.questions = await this.backend.getQuestions().catch(() => []); openDuelHub(this, { code: dm[1] }); return; }
     const m = p.match(/^lec_([A-Za-z0-9]+)$/);
     if (!m) return;
     const r = await this.backend.redeemCode(this.state, `SHPA:L:${m[1]}`);

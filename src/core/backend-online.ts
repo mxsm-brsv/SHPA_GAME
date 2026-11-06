@@ -14,6 +14,7 @@ import { newWorld, payWarCoins, type Order, type WorldState } from './world';
 import type { VoteAction, VoteState } from './vote';
 import type { RaidHit, RaidState } from './raid';
 import type { CasinoStats } from './casino';
+import type { Duel, DuelAnswer, DuelList } from './duel';
 import { SKIRMISH_WIN_COINS } from '../config/economy';
 import { fetchLiveJson, parseMerchLines, parseRosterLines } from './backend-demo';
 import type {
@@ -285,6 +286,16 @@ export class OnlineBackend implements Backend {
 
   async lecturesOpen() { return (await this.rpc<LectureSession[]>('lectures_open').catch(() => [])) ?? []; }
 
+  // ---------- поединки в правовухе ----------
+  async duelCreate() { return this.rpc<Duel>('law_duel_create'); }
+  async duelJoin(code: string) { return this.rpc<Duel>('law_duel_join', { p_code: code }); }
+  async duelStart(id: string) { return this.rpc<Duel>('law_duel_start', { p_id: id }); }
+  async duelAnswer(id: string, q: Question, given: string | number | boolean) {
+    return this.rpc<DuelAnswer>('law_duel_answer', { p_id: id, p_qid: q.id, p_answer: String(given) });
+  }
+  async duelState(id: string) { return this.rpc<Duel>('law_duel_state', { p_id: id }); }
+  async duelList() { return this.rpc<DuelList>('law_duel_list'); }
+
   // ---------- захват профкома ----------
   async raidState() { return await this.rpc<RaidState>('raid_state').catch(() => null); }
   async raidHit(dmg: number) { return this.rpc<RaidHit>('raid_hit', { p_dmg: Math.round(dmg) }); }
@@ -296,6 +307,9 @@ export class OnlineBackend implements Backend {
   async voteCast(team: string, v: 1 | -1 | 0) { return this.rpc<VoteState>('vote_cast', { p_team: team, p_v: v }); }
   async staffVoteSetup(title: string, teams: { id: string; name: string; faction: FactionId | null }[]) { return this.rpc<VoteState>('staff_vote_setup', { p_title: title, p_teams: teams }); }
   async staffVoteControl(action: VoteAction, team: string | null = null) { return this.rpc<VoteState>('staff_vote_control', { p_action: action, p_team: team }); }
+  async voteJoin(fio: string, team: string, group?: string) { return this.rpc<VoteState & { joined?: string }>('vote_join', { p_fio: fio, p_team: team, p_group: group || null }); }
+  async staffVoteMembers() { return this.rpc<{ team: string; name: string; people: { id: string | number; name: string }[] }[]>('staff_vote_members'); }
+  async staffVoteKick(rosterId: string | number) { return this.rpc<VoteState>('staff_vote_kick', { p_roster: Number(rosterId) }); }
 
   async liveFeed() {
     const [db, repo] = await Promise.all([this.rpc<Announcement[]>('live_feed').catch(() => []), fetchLiveJson()]);
