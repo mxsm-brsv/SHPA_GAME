@@ -4,9 +4,10 @@
 //  • после выигрыша ×2 всегда проигрыш, после серии из 3–5 проигрышей — снова ×2, чтобы игрок не ушёл;
 //  • стрелка замирает на ×10 (или ×2) и переползает на соседний сектор — «почти выиграл»;
 //  • тапы ускоряют анимацию, но не меняют результат — чувство контроля тоже приманка.
-// В среднем колесо возвращает ~63% ставок. Когда организаторы включают «Разоблачение» (Орг. → Настройки),
+// Ставка баллами на мерч — всегда ×0 (стрелка всё так же «почти» встаёт на ×10): баллы уходят со счёта магазина.
+// В среднем колесо возвращает ~63% ставок профкоинами. Когда организаторы включают «Разоблачение» (Орг. → Настройки),
 // каждый видит, как его подкручивали и сколько он проиграл, а экран в зале — общий итог казино.
-import { coinSvg, icon } from '../art/icons';
+import { coinSvg, icon, starSvg } from '../art/icons';
 import { haptic } from '../core/telegram';
 import { newCasino, type CasinoState, type CasinoStats } from '../core/casino';
 import { esc, el, fmt, toast } from '../lib/dom';
@@ -24,7 +25,8 @@ export const WHEEL: Sector[] = [
 ];
 
 export const BETS = [50, 100, 250, 500, 1000];
-export const MAX_BET = 1000;
+/** Ставки баллами на мерч. */
+export const PTS_BETS = [10, 25, 50, 100, 250];
 
 const COLOR: Record<Mult, [string, string]> = {
   0: ['#2a2d6e', '#8b8fd6'], 1: ['#1f6fae', '#cfe7ff'], 2: ['#2f8f5b', '#d6ffe7'], 10: ['#ffc83d', '#3a2400'],
@@ -123,7 +125,8 @@ export function revealHtml(c: CasinoState, all: CasinoStats | null) {
       <div>Вращений: <b>${fmt(c.spins)}</b> · поставил <b>${fmt(c.bet)}</b> · вернулось <b>${fmt(c.won)}</b></div>
       <div>Казино забрало у тебя <b style="color:#ff8a8a">${fmt(lost)}</b> профкоинов — ${pct}% ставок.</div>
       <div class="small muted">Стрелка «почти» останавливалась на ×10: ${fmt(c.near)} раз. Выпало ×10: 0.</div></div>` : '<div class="card small">Ты ни разу не крутил — и ничего не проиграл. Это и есть единственный способ выиграть у казино.</div>'}
-    ${all && all.bet ? `<div class="card col" style="gap:4px"><b>Все участники вместе</b><div>Играли ${fmt(all.players)} человек, ${fmt(all.spins)} вращений: поставили ${fmt(all.bet)}, вернулось ${fmt(all.won)}. Казино заработало <b class="gold">${fmt(all.bet - all.won)}</b>.</div></div>` : ''}
+    ${c.pts ? `<div class="card col" style="gap:4px;border-color:#ff8a8a"><b>Баллы на мерч</b><div>Ставок баллами: <b>${fmt(c.ptsSpins ?? 0)}</b> · проиграно <b style="color:#ff8a8a">${fmt(c.pts)}</b> баллов — 100%. На баллы колесо не возвращало ничего: ни разу, ни при какой ставке.</div></div>` : ''}
+    ${all && all.bet ? `<div class="card col" style="gap:4px"><b>Все участники вместе</b><div>Играли ${fmt(all.players)} человек, ${fmt(all.spins)} вращений: поставили ${fmt(all.bet)}, вернулось ${fmt(all.won)}. Казино заработало <b class="gold">${fmt(all.bet - all.won)}</b>.</div>${all.points ? `<div>Баллов на мерч проиграли ${fmt(all.pointsPlayers ?? 0)} человек: <b style="color:#ff8a8a">${fmt(all.points)}</b> — это мерч, который уже никто не купит.</div>` : ''}</div>` : ''}
     <div class="small muted">В настоящих казино выигрыш заведения заложен в правила, а «почти выигрыши», бонусы новичкам и редкие подачки подбирают так же, как здесь. Единственный способ не проиграть — не играть.</div>
   </div>`;
 }
@@ -132,14 +135,19 @@ export function openWheel(app: App, ctx?: PlayCtx) {
   const s = app.state;
   const c = s.casino ?? (s.casino = newCasino());
   const sh = shell(app, 'wheel', ctx, { dark: true });
-  sh.setSub('Ставка профкоинами · ×10 ждёт смелых');
+  sh.setSub('Ставка профкоинами или баллами · ×10 ждёт смелых');
+  const staff = s.role === 'staff' || s.role === 'admin';
+  let mode: 'coins' | 'pts' = 'coins';
+  let pts = 0; // баллы на счёте магазина
   let bet = Math.min(100, Math.max(10, s.coins));
+  let ptsBet = 25;
   let spinning = false, angle = 0, stopAnim = () => {};
   let finishNow: (() => void) | null = null;
   const history: number[] = [];
   const node = el(`<div class="wh-game">
     <div class="wh-wrap" data-wheel><div class="wh-pointer" data-ptr></div>${wheelSvg()}<div class="wh-fx" data-fx></div></div>
     <div class="wh-hist" data-hist></div>
+    ${staff ? '' : `<div class="chips wh-cur" data-cur><button class="chip on" data-m="coins">${coinSvg(14)} Профкоины</button><button class="chip" data-m="pts">${starSvg(14)} Баллы на мерч</button></div>`}
     <div class="wh-bets" data-bets></div>
     <button class="btn btn-gold btn-block wh-spin" data-spin>Крутить</button>
     <div class="small muted center" data-note>Во время вращения тапай по колесу — закрутится быстрее</div>
@@ -151,21 +159,38 @@ export function openWheel(app: App, ctx?: PlayCtx) {
   const fx = node.querySelector<HTMLElement>('[data-fx]')!;
   const spinBtn = node.querySelector<HTMLButtonElement>('[data-spin]')!;
   const setRot = (a: number) => rot.setAttribute('transform', `rotate(${a} 160 160)`);
-  const drawTop = () => sh.setScore(`${fmt(s.coins)}`);
+  const drawTop = () => sh.setScore(mode === 'pts' ? `★ ${fmt(pts)}` : `${fmt(s.coins)}`);
   const drawBets = () => {
     const box = node.querySelector<HTMLElement>('[data-bets]')!;
+    if (mode === 'pts') {
+      box.innerHTML = PTS_BETS.map((b) => `<button class="chip ${b === ptsBet ? 'on' : ''}" data-b="${b}" ${b > pts || spinning ? 'disabled' : ''}>${fmt(b)}</button>`).join('')
+        + `<button class="chip ${ptsBet === pts && !PTS_BETS.includes(ptsBet) ? 'on' : ''}" data-b="all" ${pts < 1 || spinning ? 'disabled' : ''}>Всё</button>`;
+      spinBtn.disabled = spinning || pts < 1 || ptsBet > pts || ptsBet < 1;
+      spinBtn.innerHTML = spinning ? 'Крутится…' : pts < 1 ? 'На счёте нет баллов' : `Крутить за ${starSvg(18)} ${fmt(Math.min(ptsBet, pts))} баллов`;
+      return;
+    }
     box.innerHTML = BETS.map((b) => `<button class="chip ${b === bet ? 'on' : ''}" data-b="${b}" ${b > s.coins || spinning ? 'disabled' : ''}>${fmt(b)}</button>`).join('')
-      + `<button class="chip ${bet === Math.min(MAX_BET, s.coins) && !BETS.includes(bet) ? 'on' : ''}" data-b="all" ${s.coins < 10 || spinning ? 'disabled' : ''}>Всё${s.coins > MAX_BET ? ` (${fmt(MAX_BET)})` : ''}</button>`;
+      + `<button class="chip ${bet === s.coins && !BETS.includes(bet) ? 'on' : ''}" data-b="all" ${s.coins < 10 || spinning ? 'disabled' : ''}>Всё</button>`;
     spinBtn.disabled = spinning || s.coins < 10 || bet > s.coins;
     spinBtn.innerHTML = spinning ? 'Крутится…' : s.coins < 10 ? 'Нужно хотя бы 10 профкоинов' : `Крутить за ${coinSvg(18)} ${fmt(bet)}`;
   };
+  const loadPts = async () => { const w = await app.backend.wallet(s).catch(() => null); if (w) pts = Math.max(0, w.balance); drawTop(); drawBets(); };
+  node.querySelector('[data-cur]')?.addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLElement>('[data-m]');
+    if (!b || spinning) return;
+    mode = b.dataset.m as 'coins' | 'pts';
+    node.querySelectorAll<HTMLElement>('[data-cur] .chip').forEach((c2) => c2.classList.toggle('on', c2 === b));
+    haptic();
+    if (mode === 'pts') { drawBets(); loadPts(); } else { drawTop(); drawBets(); }
+  });
   const drawHist = () => {
     node.querySelector<HTMLElement>('[data-hist]')!.innerHTML = history.slice(0, 10).map((m) => `<span class="wh-h m${m}">×${m}</span>`).join('') || '<span class="small muted">Здесь будут последние результаты</span>';
   };
   node.querySelector('[data-bets]')!.addEventListener('click', (e) => {
     const b = (e.target as HTMLElement).closest<HTMLElement>('[data-b]');
     if (!b || spinning) return;
-    bet = b.dataset.b === 'all' ? Math.min(MAX_BET, s.coins) : Number(b.dataset.b);
+    if (mode === 'pts') ptsBet = b.dataset.b === 'all' ? pts : Number(b.dataset.b);
+    else bet = b.dataset.b === 'all' ? s.coins : Number(b.dataset.b);
     haptic(); drawBets();
   });
 
@@ -183,15 +208,22 @@ export function openWheel(app: App, ctx?: PlayCtx) {
     setTimeout(() => b.remove(), 1900);
   };
 
-  const spin = () => {
+  const spin = async () => {
     if (spinning) return;
-    const stake = Math.min(bet, s.coins, MAX_BET);
-    if (stake < 10) { toast('Нужно хотя бы 10 профкоинов', 'bad'); return; }
+    const usePts = mode === 'pts';
+    const stake = usePts ? Math.min(ptsBet, pts) : Math.min(bet, s.coins);
+    if (!usePts && stake < 10) { toast('Нужно хотя бы 10 профкоинов', 'bad'); return; }
+    if (usePts && stake < 1) { toast('На счёте нет баллов', 'bad'); return; }
     spinning = true;
-    s.coins -= stake;
+    if (usePts) {
+      // баллы списывает сервер до вращения: ставка баллами всегда проигрывает
+      drawBets();
+      try { const w = await app.backend.casinoPointsBet(stake); pts = Math.max(0, w.balance); }
+      catch (er) { spinning = false; toast((er as Error).message, 'bad'); drawBets(); return; }
+    } else s.coins -= stake;
     drawTop(); drawBets();
     haptic('heavy');
-    const m = rigPick(c);
+    const m: Exclude<Mult, 10> = usePts ? 0 : rigPick(c);
     const land = rigLanding(m);
     // угол колеса a показывает под стрелкой точку θ = −a (mod 360)
     const turns = 4 + Math.floor(Math.random() * 3);
@@ -211,15 +243,15 @@ export function openWheel(app: App, ctx?: PlayCtx) {
       if (done) return;
       done = true; cancelAnimationFrame(raf);
       angle = aFinal; setRot(angle);
-      const win = stake * m;
-      s.coins += win;
-      rigRecord(c, m, stake, land.tease === 10);
+      const win = usePts ? 0 : stake * m;
+      if (usePts) { c.pts = (c.pts ?? 0) + stake; c.ptsSpins = (c.ptsSpins ?? 0) + 1; if (land.tease === 10) c.near++; }
+      else { s.coins += win; rigRecord(c, m, stake, land.tease === 10); }
       history.unshift(m); drawHist();
       spinning = false; finishNow = null;
       drawTop(); drawBets(); app.update(false);
       if (m === 2) { haptic('ok'); burst(30, false); banner(`×2 · +${fmt(win)}! Ещё разок?`, 'win'); }
       else if (m === 1) { haptic('tap'); banner('×1 · почти ×2!', 'even'); }
-      else { haptic('bad'); banner(NEAR_TEXT[Math.floor(Math.random() * NEAR_TEXT.length)], 'lose'); }
+      else { haptic('bad'); banner(usePts ? `${NEAR_TEXT[Math.floor(Math.random() * NEAR_TEXT.length)]}<br><small>−${fmt(stake)} баллов</small>` : NEAR_TEXT[Math.floor(Math.random() * NEAR_TEXT.length)], 'lose'); }
     };
     finishNow = end;
     const tick = (now: number) => {
@@ -251,8 +283,8 @@ export function openWheel(app: App, ctx?: PlayCtx) {
     boost = () => { rate = Math.min(4, rate + 0.55); haptic(); const r = el('<i class="wh-ring"></i>'); fx.appendChild(r); setTimeout(() => r.remove(), 500); };
   };
   let boost = () => {};
-  node.querySelector('[data-wheel]')!.addEventListener('pointerdown', () => { if (spinning) boost(); else spin(); });
-  spinBtn.addEventListener('click', spin);
+  node.querySelector('[data-wheel]')!.addEventListener('pointerdown', () => { if (spinning) boost(); else void spin(); });
+  spinBtn.addEventListener('click', () => void spin());
 
   // разоблачение: организаторы включили — показываем сразу и по кнопке
   const showTruth = async () => {
@@ -288,7 +320,7 @@ export function openCasinoBoard(app: App) {
     g.innerHTML = [
       ['Играли', fmt(a.players), 'человек'], ['Вращений', fmt(a.spins), ''], ['Поставили', fmt(a.bet), 'профкоинов'],
       ['Вернулось', fmt(a.won), 'профкоинов'], ['Казино заработало', fmt(lost), `${a.bet ? Math.round((lost / a.bet) * 100) : 0}% ставок`], ['Стрелка замирала на ×10', fmt(a.near), 'раз'],
-      ['Выпало ×10', '0', 'раз'],
+      ['Выпало ×10', '0', 'раз'], ...(a.points ? [['Баллов на мерч проиграно', fmt(a.points), `${fmt(a.pointsPlayers ?? 0)} человек · вернулось 0`]] : []),
     ].map(([k, v, u], i) => `<div class="cb-cell ${i === 4 ? 'big' : ''}" style="--d:${i * 0.25}s"><div class="cb-k">${esc(k)}</div><div class="cb-v">${esc(v)}</div><div class="cb-u">${esc(u)}</div></div>`).join('');
   };
   const load = async () => draw(await app.backend.casinoStats().catch(() => null));

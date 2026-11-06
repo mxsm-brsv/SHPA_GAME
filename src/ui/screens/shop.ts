@@ -55,7 +55,7 @@ export function renderShop(app: App) {
     };
     body.innerHTML = `
       <div class="card row wallet">${starSvg(30)}<div class="grow"><div class="small muted">Баллы на счёте</div><div style="font-family:var(--head);font-size:26px;color:var(--gold2)">${fmt(wallet.balance)}</div>
-        <div class="small muted">заработано ${fmt(wallet.earned)} · потрачено ${fmt(wallet.spent)}. Рейтинг от покупок не падает.</div></div></div>
+        <div class="small muted">заработано ${fmt(wallet.earned)} · потрачено ${fmt(wallet.spent)}${wallet.casino ? `, из них проиграно в колесе ${fmt(wallet.casino)}` : ''}. Рейтинг от покупок не падает.</div></div></div>
       ${cfg.shopOpen ? '' : '<div class="card small" style="border-color:var(--gold)"><b>Магазин мерча пока закрыт.</b> Можно присмотреться и копить баллы — организаторы откроют его в конце выезда.</div>'}
       ${orders.filter((o) => o.status === 'reserved').length ? `<div class="card col" style="gap:6px;border-color:var(--green)"><b>Мои покупки — забрать у организаторов</b>
         ${orders.filter((o) => o.status === 'reserved').map((o) => orderRow(o)).join('')}

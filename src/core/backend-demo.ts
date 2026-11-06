@@ -31,7 +31,8 @@ const LS_SESSION = 'pbgame.session';
 const LS_WORLD = 'pbgame.world';
 const LS_SUBS = 'pbgame.subs';
 const LS_CLAN = 'pbgame.clan';
-const LS_MERCH = 'pbgame.merch';
+const LS_MERCH = 'pbgame.merch7';
+const LS_CASINO_PTS = 'pbgame.casinoPts';
 const LS_ORDERS = 'pbgame.orders';
 const LS_LECT = 'pbgame.lectures';
 const LS_LIVE = 'pbgame.live';
@@ -495,8 +496,17 @@ export class DemoBackend implements Backend {
   private orders(): MerchOrder[] { return lsJson<MerchOrder[]>(LS_ORDERS, []); }
   async merchList() { return this.items().filter((x) => x.active); }
   async wallet(s: GameState): Promise<Wallet> {
-    const spent = this.orders().filter((o) => o.status !== 'cancelled').reduce((a, o) => a + o.price, 0);
-    return { earned: s.rating, spent, balance: s.rating - spent };
+    const casino = lsJson<number>(LS_CASINO_PTS, 0);
+    const spent = this.orders().filter((o) => o.status !== 'cancelled').reduce((a, o) => a + o.price, 0) + casino;
+    return { earned: s.rating, spent, balance: s.rating - spent, casino };
+  }
+  async casinoPointsBet(amount: number) {
+    const s = this.state!;
+    const w = await this.wallet(s);
+    if (amount < 1) throw new Error('Ставка — хотя бы 1 балл');
+    if (amount > w.balance) throw new Error(`На счёте только ${Math.max(0, w.balance)} баллов`);
+    lsSet(LS_CASINO_PTS, JSON.stringify((w.casino ?? 0) + amount));
+    return { ...(await this.wallet(s)), mult: 0 as const, lost: amount };
   }
   async merchBuy(s: GameState, itemId: string) {
     const cfg = await this.config();
@@ -950,7 +960,7 @@ export class DemoBackend implements Backend {
   /** В демо: моя статистика плюс 30 «участников», которые крутили так же. */
   async casinoStats(): Promise<CasinoStats> {
     const m = this.state?.casino ?? { bet: 0, won: 0, spins: 0, near: 0 };
-    return { players: 31, spins: m.spins + 1240, bet: m.bet + 186000, won: m.won + 117200, near: m.near + 610 };
+    return { players: 31, spins: m.spins + 1240, bet: m.bet + 186000, won: m.won + 117200, near: m.near + 610, points: lsJson<number>(LS_CASINO_PTS, 0) + 2350, pointsPlayers: 9, pointsSpins: (this.state?.casino?.ptsSpins ?? 0) + 27 };
   }
 
   /** Для тест-панели: текущий QR-код бота, чтобы проверить знакомство. */

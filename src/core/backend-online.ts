@@ -379,6 +379,7 @@ export class OnlineBackend implements Backend {
   async staffRosterReset(id: string) { return this.rpc<string>('staff_roster_reset', { p_id: id }); }
   async staffSetSetting(key: 'shop_open' | 'require_group' | 'casino_reveal', value: boolean) { await this.rpc('staff_set_setting', { p_key: key, p_value: value }); this.cfg = null; }
   async casinoStats() { return await this.rpc<CasinoStats>('casino_stats'); }
+  async casinoPointsBet(amount: number) { return await this.rpc<Wallet & { mult: 0; lost: number }>('casino_points_bet', { p_amount: amount }); }
   async staffSetCheckinHost(rosterId: string | null) { this.cfg = await this.rpc<GameConfig>('staff_set_checkin_host', { p_roster: rosterId === null ? null : Number(rosterId) }); return this.cfg; }
   async adminResetProgress(confirm: string) {
     const r = await this.rpc<{ players: number; submissions: number; orders: number; qr: number; epoch: number; registrations?: number }>('admin_reset_progress', { p_confirm: confirm });

@@ -43,7 +43,8 @@ export interface LectureSession {
 }
 export interface Announcement { id: string; text: string; kind: 'info' | 'alert' | 'win'; at: number; until?: number | null; author?: string; source?: 'staff' | 'claude' }
 export interface RosterRow { id: string; fio: string; faction: FactionId; group: string; role: Role; bound: boolean; tg?: boolean }
-export interface Wallet { earned: number; spent: number; balance: number }
+/** Баллы на мерч: заработано (рейтинг) − потрачено (заказы и проигрыш в колесе). casino — сколько из потраченного ушло в колесо. */
+export interface Wallet { earned: number; spent: number; balance: number; casino?: number }
 export interface GameConfig {
   shopOpen: boolean; testMode: boolean; requireGroup: boolean;
   /** Кто отмечает на блоках и начисляет баллы (null — все организаторы) */
@@ -142,6 +143,8 @@ export interface Backend {
   staffSetSetting(key: 'shop_open' | 'require_group' | 'casino_reveal', value: boolean): Promise<void>;
   /** Общий итог колеса профкома (после разоблачения — всем, до него — организаторам). */
   casinoStats(): Promise<CasinoStats | null>;
+  /** Ставка баллами на мерч: всегда ×0, баллы уходят со счёта магазина (рейтинг не меняется). */
+  casinoPointsBet(amount: number): Promise<Wallet & { mult: 0; lost: number }>;
   /** Админ: кто отмечает (id строки списка выезда) или null — все организаторы. */
   staffSetCheckinHost(rosterId: string | null): Promise<GameConfig>;
   /** Только админ: обнулить прогресс всех (подтверждение — слово «СБРОС»). */

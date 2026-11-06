@@ -80,13 +80,47 @@ export function openBlocks(app: App, ctx?: PlayCtx) {
       return `<div class="bl-piece ${p.used ? 'used' : ''} ${can || p.used ? '' : 'stuck'}" data-i="${i}" style="grid-template-columns:repeat(${p.cells[0].length},1fr)">${p.cells.map((row) => row.map((v) => `<div class="bl-pc" style="${v ? `--c:${p.color}` : 'visibility:hidden'}"></div>`).join('')).join('')}</div>`;
     }).join('');
   };
-  /** Всплывающая надпись над сеткой (очки, комбо). */
-  const pop = (text: string, r: number, c: number, big = false) => {
-    const t = el(`<div class="bl-pop ${big ? 'big' : ''}" style="left:${((c + 0.5) / N) * 100}%;top:${((r + 0.5) / N) * 100}%">${text}</div>`);
-    fxEl.appendChild(t);
-    setTimeout(() => t.remove(), 1100);
+  const PRAISE = ['Без окон!', 'Чистый день!', 'Супер-расписание!', 'Идеальная неделя!', 'Деканат доволен!'];
+
+  // ---------- эффекты как в Block Blast: кубики разлетаются осколками, счёт — крупно на весь экран ----------
+  const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /** Кубик лопается: несколько осколков его цвета разлетаются и падают. */
+  const shards = (k: number, color: string, delay: number, budget: { n: number }) => {
+    const i = Math.floor(k / N), j = k % N;
+    const w = fxEl.clientWidth || 300;
+    const cnt = calm ? 0 : Math.min(3, budget.n);
+    budget.n -= cnt;
+    for (let q = 0; q < cnt; q++) {
+      const sh2 = el(`<i class="bl-shard" style="left:${((j + 0.5) / N) * 100}%;top:${((i + 0.5) / N) * 100}%;--c:${color}"></i>`);
+      fxEl.appendChild(sh2);
+      const dx = (Math.random() * 2 - 1) * w * 0.28, dy = -(w * (0.08 + Math.random() * 0.22)), rot = (Math.random() * 2 - 1) * 540;
+      const a = sh2.animate([
+        { transform: 'translate(-50%, -50%) translate(0, 0) rotate(0deg) scale(1)', opacity: 1 },
+        { transform: `translate(-50%, -50%) translate(${dx * 0.55}px, ${dy}px) rotate(${rot / 2}deg) scale(.95)`, opacity: 1, offset: 0.35 },
+        { transform: `translate(-50%, -50%) translate(${dx}px, ${dy + w * 0.75}px) rotate(${rot}deg) scale(.5)`, opacity: 0 },
+      ], { duration: 750 + Math.random() * 350, delay: delay * 1000, easing: 'cubic-bezier(.25,.6,.45,1)', fill: 'both' });
+      a.onfinish = () => sh2.remove();
+    }
   };
-  const PRAISE = ['Без окон!', 'Чистый день!', 'Комбо!', 'Идеальная неделя!', 'Деканат доволен!'];
+  /** Крупно на весь экран: похвала, очки и комбо. */
+  const bigShow = (word: string, pts: number, comboN: number, tier: number) => {
+    const ov = el(`<div class="bl-big t${tier}" aria-live="polite"><div class="w">${word}</div><div class="n">+${fmt(pts)}</div>${comboN > 1 ? `<div class="c">Комбо ×${comboN}</div>` : ''}</div>`);
+    sh.node.appendChild(ov);
+    setTimeout(() => ov.remove(), 1400);
+  };
+  /** Счёт в шапке «добегает» до нового значения. */
+  let shown = 0, tween = 0;
+  const showScore = () => {
+    cancelAnimationFrame(tween);
+    const from = shown, to = score, t0 = performance.now(), dur = to - from > 30 ? 650 : 250;
+    const step = (now: number) => {
+      const k = Math.min(1, (now - t0) / dur);
+      shown = Math.round(from + (to - from) * (1 - Math.pow(1 - k, 3)));
+      sh.setScore(fmt(shown));
+      if (k < 1) tween = requestAnimationFrame(step);
+    };
+    tween = requestAnimationFrame(step);
+  };
 
   const place = (p: Piece, r: number, c: number) => {
     p.cells.forEach((row, i) => row.forEach((v, j) => { if (v) grid[r + i][c + j] = p.color; }));
@@ -100,7 +134,7 @@ export function openBlocks(app: App, ctx?: PlayCtx) {
     if (!cleared) {
       combo = 0;
       comboEl.textContent = '';
-      sh.setScore(fmt(score));
+      showScore();
       drawGrid(); drawTray();
       // фигура «впечатывается» в сетку
       p.cells.forEach((row, i) => row.forEach((v, j) => { if (v) gEl.children[(r + i) * N + c + j]?.classList.add('drop'); }));
@@ -111,7 +145,7 @@ export function openBlocks(app: App, ctx?: PlayCtx) {
     lines += cleared;
     const bonus = cleared * 10 * combo * (cleared > 1 ? cleared : 1);
     score += bonus;
-    sh.setScore(fmt(score));
+    showScore();
     comboEl.innerHTML = combo > 1 ? `<b class="gold">Комбо ×${combo}</b>` : '';
     haptic(cleared > 1 ? 'heavy' : 'ok');
     // анимация: линии вспыхивают и рассыпаются волной от места, куда поставили фигуру
@@ -119,21 +153,25 @@ export function openBlocks(app: App, ctx?: PlayCtx) {
     const gone = new Set<number>();
     fullR.forEach((i) => { for (let j = 0; j < N; j++) gone.add(i * N + j); });
     fullC.forEach((j) => { for (let i = 0; i < N; i++) gone.add(i * N + j); });
+    const budget = { n: 60 };
     gone.forEach((k) => {
       const i = Math.floor(k / N), j = k % N;
       const cell = gEl.children[k] as HTMLElement;
-      cell.style.setProperty('--d', `${(Math.abs(i - cr) + Math.abs(j - cc)) * 0.035}s`);
+      const d = (Math.abs(i - cr) + Math.abs(j - cc)) * 0.035;
+      cell.style.setProperty('--d', `${d}s`);
       cell.classList.add('clr');
+      shards(k, grid[i][j] ?? '#fff', d + 0.1, budget);
     });
+    if (cleared > 1 || combo > 2) { const b = node.querySelector<HTMLElement>('.bl-board')!; b.classList.remove('shake'); void b.offsetWidth; b.classList.add('shake'); }
     fullR.forEach((i) => { const b = el(`<div class="bl-beam" style="top:${(i / N) * 100}%;height:${100 / N}%"></div>`); fxEl.appendChild(b); setTimeout(() => b.remove(), 600); });
     fullC.forEach((j) => { const b = el(`<div class="bl-beam v" style="left:${(j / N) * 100}%;width:${100 / N}%"></div>`); fxEl.appendChild(b); setTimeout(() => b.remove(), 600); });
-    pop(`+${bonus}`, cr, cc);
-    if (cleared > 1 || combo > 1) setTimeout(() => pop(PRAISE[Math.min(PRAISE.length - 1, cleared + combo - 2)], N / 2 - 0.5, N / 2 - 0.5, true), 150);
+    const tier = Math.min(PRAISE.length - 1, cleared - 1 + (combo > 1 ? 1 : 0) + (combo > 3 ? 1 : 0));
+    bigShow(PRAISE[tier], bonus, combo, tier);
     busy = true;
     setTimeout(() => {
       gone.forEach((k) => (grid[Math.floor(k / N)][k % N] = null));
       busy = false;
-      if (grid.every((row) => row.every((v) => !v))) { score += 300; sh.setScore(fmt(score)); pop('Вся неделя свободна! +300', N / 2 - 0.5, N / 2 - 0.5, true); }
+      if (grid.every((row) => row.every((v) => !v))) { score += 300; showScore(); bigShow('Вся неделя свободна!', 300, 0, 4); haptic('heavy'); }
       drawGrid(); drawTray();
       if (!anyFit()) finish();
     }, 520 + gone.size * 4);

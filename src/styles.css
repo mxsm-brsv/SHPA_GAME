@@ -856,3 +856,24 @@ input[type="range"] { width: 100%; accent-color: var(--gold); }
 .duel-li.draw { border-left: 3px solid #ffd76a; }
 .duel-result.win { border-color: var(--gold); box-shadow: 0 0 40px rgba(255, 200, 61, .25); }
 .duel-play .wh-conf { position: fixed; }
+
+/* колесо: выбор, чем ставить */
+.wh-cur { justify-content: center; margin: 2px 0 -2px; }
+.wh-cur .chip { display: inline-flex; align-items: center; gap: 6px; }
+.wh-banner small { display: block; font-size: .6em; opacity: .85; margin-top: 2px; }
+
+/* «Расписание»: осколки кубиков, крупный счёт на весь экран, встряска поля (как в Block Blast) */
+.bl-shard { position: absolute; width: 4.2%; aspect-ratio: 1; border-radius: 3px; background: var(--c); box-shadow: inset 0 2px 0 #ffffff66, 0 0 6px var(--c); z-index: 4; will-change: transform, opacity; }
+.bl-big { position: fixed; inset: 0; z-index: 260; pointer-events: none; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; text-align: center; padding: 0 16px; }
+.bl-big::before { content: ''; position: absolute; inset: 0; background: radial-gradient(circle at 50% 48%, #ff5fa233, transparent 62%); animation: blflash .7s ease-out both; }
+.bl-big .w { position: relative; font-family: var(--head); font-size: clamp(38px, 11vw, 76px); line-height: 1.02; color: #fff; -webkit-text-stroke: 2px #6b1f4c; text-shadow: 0 5px 0 #a2357a, 0 0 28px #ff5fa2, 0 0 64px #ff5fa288; animation: blbigIn 1.35s cubic-bezier(.2, 1.5, .4, 1) both; }
+.bl-big .n { position: relative; font-family: var(--head); font-size: clamp(44px, 15vw, 96px); line-height: 1; color: var(--gold2); -webkit-text-stroke: 2px #6b3400; text-shadow: 0 5px 0 #6b3400, 0 0 30px #ffc83daa; animation: blbigIn 1.35s .07s cubic-bezier(.2, 1.5, .4, 1) both; }
+.bl-big .c { position: relative; padding: 5px 16px; border-radius: 999px; background: linear-gradient(180deg, #ff7ab8, #d63384); color: #fff; font-family: var(--head); font-size: 22px; box-shadow: 0 0 22px #ff5fa2aa, inset 0 2px 0 #ffffff55; animation: blbigIn 1.35s .14s cubic-bezier(.2, 1.5, .4, 1) both; }
+.bl-big.t0 .w { font-size: clamp(30px, 9vw, 56px); }
+.bl-big.t0 .n { font-size: clamp(36px, 11vw, 70px); }
+.bl-big.t3 .w, .bl-big.t4 .w { color: #fff6c9; text-shadow: 0 5px 0 #a2357a, 0 0 32px #ffc83d, 0 0 80px #ff5fa2; }
+@keyframes blbigIn { 0% { opacity: 0; transform: scale(.25) rotate(-8deg); } 16% { opacity: 1; transform: scale(1.18) rotate(2deg); } 28% { transform: scale(1) rotate(0); } 74% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.08) translateY(-36px); } }
+@keyframes blflash { 0% { opacity: 0; } 18% { opacity: 1; } 100% { opacity: 0; } }
+.bl-board.shake { animation: blshake .42s ease-out; }
+@keyframes blshake { 0%, 100% { transform: translate(0, 0); } 15% { transform: translate(-7px, 3px); } 35% { transform: translate(6px, -4px); } 55% { transform: translate(-4px, 3px); } 75% { transform: translate(3px, -2px); } }
+@media (prefers-reduced-motion: reduce) { .bl-board.shake { animation: none; } .bl-big .w, .bl-big .n, .bl-big .c { animation-duration: 1.2s; } }

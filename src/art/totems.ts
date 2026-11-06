@@ -1,5 +1,6 @@
 // Тотемы ПБ в едином стиле: круглый жетон, животное цветом фракции. viewBox 64×64.
 import type { Faction, Totem } from '../config/factions';
+import { TOTEM_IMG } from './totem-img';
 
 const EYE = '#15173d';
 
@@ -66,6 +67,10 @@ function body(t: Totem, c: string, light: string): string {
       return `<path d="M8 38 Q16 22 28 28 Q22 30 24 36 Q30 30 38 36 Q44 40 50 34 Q54 30 56 34 L56 48 L8 48Z" fill="${c}"/>
         <path d="M8 44 Q20 38 32 44 Q44 50 56 44 L56 52 L8 52Z" fill="${light}" opacity=".85"/>
         <circle cx="20" cy="16" r="1.6" fill="#fff"/><circle cx="44" cy="14" r="1.2" fill="#fff"/><circle cx="50" cy="22" r="1.4" fill="#fff"/><circle cx="34" cy="12" r="1" fill="#fff"/>`;
+    case 'penguin':
+      return `<path d="M32 10 Q46 12 46 30 L47 48 Q40 54 32 54 Q24 54 17 48 L18 30 Q18 12 32 10Z" fill="${c}"/>
+        <path d="M32 22 Q41 24 41 36 L41 46 Q36 50 32 50 Q28 50 23 46 L23 36 Q23 24 32 22Z" fill="#eaf8ff"/>
+        <circle cx="27" cy="21" r="2.2" fill="${EYE}"/><circle cx="37" cy="21" r="2.2" fill="${EYE}"/><path d="M29 25 L35 25 L32 29Z" fill="#ffc83d"/>`;
     case 'bolt':
       return `<path d="M36 6 L16 36 L29 36 L25 58 L48 26 L34 26Z" fill="#fff"/>`;
   }
@@ -78,7 +83,18 @@ function lighten(hex: string, k = 0.45) {
   return `rgb(${m(r)},${m(g)},${m(b)})`;
 }
 
+let clipN = 0;
 export function totemSvg(f: Faction, size = 56, ring = true) {
+  // ИнЭИ и ИВТИ — свои рисунки профбюро, в том же круглом жетоне
+  const img = TOTEM_IMG[f.id];
+  if (img) {
+    const id = `tc${++clipN}`;
+    return `<svg width="${size}" height="${size}" viewBox="0 0 64 64" role="img" aria-label="${f.totemName} · ${f.short}">
+      <defs><clipPath id="${id}"><circle cx="32" cy="32" r="30"/></clipPath></defs>
+      <circle cx="32" cy="32" r="30" fill="${f.colorDark}"/>
+      <image href="${img}" x="2" y="2" width="60" height="60" clip-path="url(#${id})" preserveAspectRatio="xMidYMid slice"/>
+      ${ring ? `<circle cx="32" cy="32" r="30" fill="none" stroke="${lighten(f.color, 0.3)}" stroke-width="3"/>` : ''}</svg>`;
+  }
   const bg = f.totem === 'fire' || f.totem === 'bolt' || f.totem === 'wave' ? f.color : f.colorDark;
   const fg = f.totem === 'fire' || f.totem === 'bolt' ? f.colorDark : f.color;
   return `<svg width="${size}" height="${size}" viewBox="0 0 64 64" role="img" aria-label="${f.totemName} · ${f.short}">

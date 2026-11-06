@@ -59,13 +59,14 @@ export function renderTasks(app: App) {
       <button class="btn btn-blue grow btn-col" data-act="myqr">${icon('qr', 22)}<span class="sub">Мой QR</span></button>
     </div>
     <div class="howto small"><b>Как это работает.</b> Выбери задание → «Сдать» (фото, ссылка или текст). Организатор проверит, ответ придёт в «Ответы» и сообщением бота. Отметки на блоках — во вкладке <b>QR</b> внизу.</div>
-    <div class="chips" data-days>${([['today', 'Сегодня'], ['before', 'До выезда'], ['nov7', '7 ноября'], ['nov8', '8 ноября'], ['creative', 'Творческие'], ['all', 'Все']] as [DayFilter, string][])
+    <div class="chips" data-days>${([['today', 'Сегодня'], ['before', 'С запуска'], ['nov7', '7 ноября'], ['nov8', '8 ноября'], ['creative', 'Творческие'], ['all', 'Все']] as [DayFilter, string][])
       .map(([k, n]) => `<button class="chip ${k === dayFilter ? 'on' : ''}" data-act="day" data-v="${k}">${n}</button>`).join('')}</div>
     <div data-list></div>
   </div></div>`);
   const days = (): (typeof TASKS[number]['day'])[] => {
     if (dayFilter === 'all') return ['before', 'nov7', 'nov8', 'both', 'creative'];
-    if (dayFilter === 'today') return [todayKey(), 'both', 'creative'];
+    // «Сегодня»: всё, что ещё можно сделать, — задания дней выезда не сгорают до 8 ноября включительно
+    if (dayFilter === 'today') { const k = todayKey(); return k === 'nov8' ? ['nov8', 'nov7', 'before', 'both', 'creative'] : k === 'nov7' ? ['nov7', 'before', 'both', 'creative'] : ['before', 'both', 'creative']; }
     return [dayFilter];
   };
   const draw = () => {

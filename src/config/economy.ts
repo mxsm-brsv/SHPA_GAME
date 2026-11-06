@@ -48,14 +48,13 @@ export const MAX_STARS = 5;
 /** Отряд небольшой — 4 активиста, чтобы все их умения помещались в ячейки. */
 export const SQUAD_SIZE = 4;
 
-/** Ежедневный подарок по дням подряд. */
+/** Подарок дня: выезд длится два дня — 7 и 8 ноября, у каждого дня свой подарок (забрать можно раз в день). */
 export const DAILY_GIFT = [
-  { coins: 300, scrolls: 0 },
-  { coins: 400, scrolls: 1 },
-  { coins: 500, scrolls: 0 },
-  { coins: 600, scrolls: 1 },
-  { coins: 800, scrolls: 2 },
+  { day: '2026-11-07', label: '7 ноября', coins: 2000, scrolls: 3 },
+  { day: '2026-11-08', label: '8 ноября', coins: 3500, scrolls: 5 },
 ];
+/** Какой подарок сегодня: 8 ноября и позже — второй, иначе первый. */
+export const giftIndex = (day: string) => (day >= DAILY_GIFT[1].day ? 1 : 0);
 /** «Зайти в игру» — 10 рейтинга в день (задание из концепции). */
 export const DAILY_LOGIN_RATING = 10;
 
