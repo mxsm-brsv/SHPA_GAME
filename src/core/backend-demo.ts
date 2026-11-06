@@ -17,6 +17,7 @@ import { SKIRMISH_WIN_COINS } from '../config/economy';
 import { plural } from '../lib/dom';
 import { VOTE_DEFAULT_TITLE, defaultVoteTeams, type VoteAction, type VoteState } from './vote';
 import type { RaidHit, RaidState } from './raid';
+import type { CasinoStats } from './casino';
 import type {
   Announcement, Backend, ClanMember, ClanView, FactionRow, GameConfig, LeaderRow, LectureSession, LoginParams, LoginResult,
   MySubmission, Note, PlayerRef, QrSessionInput, RosterRow, SharedTest, Submission, SubmitResult, TaskPayload, UserQuestion, Wallet,
@@ -182,7 +183,7 @@ export class DemoBackend implements Backend {
   async config(): Promise<GameConfig> {
     const c = lsJson<Partial<GameConfig>>(LS_CFG, {});
     const host = c.checkinHost ?? null;
-    return { shopOpen: c.shopOpen ?? TEST_MODE, testMode: TEST_MODE, requireGroup: c.requireGroup ?? true, checkinHost: host, canCheckin: this.staff && (!host || host.id === 'me') };
+    return { shopOpen: c.shopOpen ?? TEST_MODE, testMode: TEST_MODE, requireGroup: c.requireGroup ?? true, checkinHost: host, canCheckin: this.staff && (!host || host.id === 'me'), casinoReveal: c.casinoReveal ?? false };
   }
   async staffSetCheckinHost(rosterId: string | null) {
     if (!this.admin) throw new Error('Только админы');
@@ -792,10 +793,15 @@ export class DemoBackend implements Backend {
     lsDel(LS_KEY); lsDel(LS_SESSION); // как на сервере: регистрация тоже сбрасывается — вход заново
     return 'Демо: всё сброшено, войди заново';
   }
-  async staffSetSetting(key: 'shop_open' | 'require_group', value: boolean) {
+  async staffSetSetting(key: 'shop_open' | 'require_group' | 'casino_reveal', value: boolean) {
     const c = lsJson<Partial<GameConfig>>(LS_CFG, {});
-    if (key === 'shop_open') c.shopOpen = value; else c.requireGroup = value;
+    if (key === 'shop_open') c.shopOpen = value; else if (key === 'casino_reveal') c.casinoReveal = value; else c.requireGroup = value;
     lsSet(LS_CFG, JSON.stringify(c));
+  }
+  /** В демо: моя статистика плюс 30 «участников», которые крутили так же. */
+  async casinoStats(): Promise<CasinoStats> {
+    const m = this.state?.casino ?? { bet: 0, won: 0, spins: 0, near: 0 };
+    return { players: 31, spins: m.spins + 1240, bet: m.bet + 186000, won: m.won + 117200, near: m.near + 610 };
   }
 
   /** Для тест-панели: текущий QR-код бота, чтобы проверить знакомство. */
