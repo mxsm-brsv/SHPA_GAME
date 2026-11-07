@@ -19,7 +19,7 @@ import { VOTE_DEFAULT_TITLE, defaultVoteTeams, type VoteAction, type VoteState }
 import type { RaidHit, RaidState } from './raid';
 import type { CasinoStats } from './casino';
 import type { Duel, DuelAnswer, DuelList } from './duel';
-import type { CodeWord, ScanRow,
+import type { CodeWord, Goal, ScanRow,
   Announcement, Backend, ClanMember, ClanView, FactionRow, GameConfig, LeaderRow, LectureSession, LoginParams, LoginResult,
   MySubmission, Note, PlayerRef, QrSessionInput, RosterRow, SharedTest, Submission, SubmitResult, TaskPayload, UserQuestion, Wallet,
   DutyZone, TeamMember,
@@ -499,8 +499,9 @@ export class DemoBackend implements Backend {
   async merchList() { return this.items().filter((x) => x.active); }
   async wallet(s: GameState): Promise<Wallet> {
     const casino = lsJson<number>(LS_CASINO_PTS, 0);
-    const spent = this.orders().filter((o) => o.status !== 'cancelled').reduce((a, o) => a + o.price, 0) + casino;
-    return { earned: s.rating, spent, balance: s.rating - spent, casino };
+    const goals = lsJson<number>('pbgame.goalspent', 0);
+    const spent = this.orders().filter((o) => o.status !== 'cancelled').reduce((a, o) => a + o.price, 0) + casino + goals;
+    return { earned: s.rating, spent, balance: s.rating - spent, casino, goals };
   }
   async casinoPointsBet(amount: number) {
     const s = this.state!;
@@ -864,6 +865,33 @@ export class DemoBackend implements Backend {
   }
   async staffStartEvent(id: string) { forceEvent(id); }
 
+  private goals(): Goal[] {
+    return lsJson<Goal[]>('pbgame.goals', [{ id: 1, title: 'Открыть магазин мерча', text: 'Магазин откроется, когда все вместе соберём 50 000 баллов. Лучших спонсоров из топа организаторы наградят отдельно!', target: 50000, raised: 31250, donors: 41, mine: 0, status: 'open', effect: 'open_shop', factions: null, top: [{ name: 'Иванова Анна', faction: 'ivti', amount: 2500 }, { name: 'Петров Илья', faction: 'ire', amount: 1800 }, { name: 'Смирнова Дарья', faction: 'iee', amount: 1200 }] }]);
+  }
+  async goalsList() { return this.goals(); }
+  async goalDonate(id: number, amount: number) {
+    const gs = this.goals(); const g = gs.find((x) => x.id === id);
+    if (!g || g.status !== 'open') throw new Error('Сбор не найден');
+    const w = await this.wallet(this.state!);
+    const amt = Math.min(amount, g.target - g.raised);
+    if (amt > w.balance) throw new Error(`На счёте только ${w.balance} баллов`);
+    g.raised += amt; g.mine += amt; if (g.raised >= g.target) g.status = 'done';
+    const me = g.top.find((t) => t.name === 'Ты'); if (me) me.amount += amt; else g.top.push({ name: 'Ты', faction: this.state?.faction ?? 'ivti', amount: amt });
+    g.top.sort((a, b) => b.amount - a.amount);
+    lsSet('pbgame.goals', JSON.stringify(gs));
+    lsSet('pbgame.goalspent', JSON.stringify(lsJson<number>('pbgame.goalspent', 0) + amt));
+    return { ...g, given: amt, wallet: await this.wallet(this.state!) };
+  }
+  async staffGoalSave(p: Partial<Goal> & { id?: number }) {
+    const gs = this.goals();
+    let g = gs.find((x) => x.id === p.id);
+    if (!g) { g = { id: Date.now(), title: 'Новый сбор', text: '', target: 1000, raised: 0, donors: 0, mine: 0, status: 'open', effect: null, factions: null, top: [] }; gs.push(g); }
+    Object.assign(g, Object.fromEntries(Object.entries(p).filter(([, v]) => v !== undefined)));
+    lsSet('pbgame.goals', JSON.stringify(gs));
+    return g.id;
+  }
+  async staffMerchPriceAll(pct: number) { const items = this.items(); items.forEach((it) => { if (it.active) it.price = Math.max(1, Math.round((it.price * (100 + pct)) / 100)); }); lsSet(LS_MERCH, JSON.stringify(items)); return items.length; }
+  async staffOrdersCancelPending() { return { orders: 0, points: 0 }; }
   async staffMerchAll() { return this.items().sort((a, b) => Number(b.active) - Number(a.active) || a.price - b.price); }
   async staffMerchSave(item: Partial<MerchItem> & { name: string }) {
     const items = this.items();

@@ -1,6 +1,8 @@
 // Магазин: мерч за баллы (ограниченное количество, автоскидка на то, что не берут) и игровые товары за профкоины.
 import { SHOP } from '../../config/economy';
 import { merchPrice, nextDiscountIn, nextTier, type MerchItem, type MerchOrder } from '../../config/merch';
+import { factionById } from '../../config/factions';
+import type { Goal } from '../../core/backend';
 import { coinSvg, icon, scrollSvg, starSvg } from '../../art/icons';
 import { haptic } from '../../core/telegram';
 import { $, el, esc, fmt, hm, modal, onAct, toast } from '../../lib/dom';
@@ -8,11 +10,30 @@ import type { App } from '../app';
 import { openMyQr } from './tasks';
 
 let tab: 'merch' | 'coins' = 'merch';
+let lastGoals: Goal[] = [];
+let lastBalance = 0;
+
+/** Сбор как на DonationAlerts: большая полоса, сумма, топ спонсоров. */
+function goalCard(g: Goal, staff: boolean) {
+  const pct = Math.min(100, Math.round((g.raised / Math.max(1, g.target)) * 1000) / 10);
+  const done = g.status === 'done';
+  const medal = ['#ffd76a', '#cfd8e3', '#d9a066'];
+  const pbs = g.factions?.length ? g.factions.map((f) => factionById(f as never)?.short ?? f).join(', ') : '';
+  return `<div class="card col goal ${done ? 'done' : ''}" style="gap:8px">
+    <div class="row" style="gap:8px;align-items:flex-start"><div class="grow"><div class="goal-kicker">${done ? 'Цель собрана' : 'Общий сбор'}${pbs ? ` · ${esc(pbs)}` : ''}</div><b style="font-size:18px">${esc(g.title)}</b></div>
+      <div class="goal-sum"><b>${fmt(g.raised)}</b><span>из ${fmt(g.target)}</span></div></div>
+    ${g.text ? `<div class="small">${esc(g.text)}</div>` : ''}
+    <div class="goal-bar"><i style="width:${pct}%"></i><span>${pct}%</span></div>
+    <div class="small muted">${fmt(g.donors)} ${g.donors % 10 === 1 && g.donors % 100 !== 11 ? 'спонсор' : 'спонсоров'}${g.mine ? ` · твой вклад <b class="gold">${fmt(g.mine)}</b>` : ''}</div>
+    ${g.top.length ? `<div class="goal-top"><div class="small"><b>Топ спонсоров</b> — лучших наградим!</div>${g.top.slice(0, 5).map((t, i) => `<div class="row small" style="gap:8px"><span class="goal-place" style="background:${medal[i] ?? '#ffffff22'}">${i + 1}</span><span class="grow">${esc(t.name)} <span class="muted">${esc(factionById(t.faction as never)?.short ?? '')}</span></span><b>${fmt(t.amount)}</b></div>`).join('')}</div>` : ''}
+    ${done || staff ? '' : `<button class="btn btn-gold btn-block" data-act="donate" data-id="${g.id}">${starSvg(16)} Задонатить баллы</button>`}
+  </div>`;
+}
 
 export function renderShop(app: App) {
   const s = app.state;
   const node = el(`<div class="screen"><div class="page">
-    <div class="page-title"><h1>Магазин</h1><div class="row"><span class="pill">${coinSvg(18)}${fmt(s.coins)}</span></div></div>
+    <div class="page-title"><h1>Магазин</h1><div class="row" style="gap:6px"><button class="btn btn-ghost btn-sm" data-act="refresh" aria-label="Обновить">${icon('refresh', 16)} Обновить</button><span class="pill">${coinSvg(18)}${fmt(s.coins)}</span></div></div>
     <div class="tabs"><button class="${tab === 'merch' ? 'on' : ''}" data-act="tab" data-v="merch">Мерч за баллы</button><button class="${tab === 'coins' ? 'on' : ''}" data-act="tab" data-v="coins">За профкоины</button></div>
     <div data-body class="col" style="gap:12px"></div>
   </div></div>`);
@@ -30,7 +51,8 @@ export function renderShop(app: App) {
 
   const drawMerch = async () => {
     body.innerHTML = '<div class="muted center">Загружаю…</div>';
-    const [items, wallet, orders, cfg] = await Promise.all([app.backend.merchList(), app.backend.wallet(s), app.backend.myOrders(s), app.backend.config()]);
+    const [items, wallet, orders, cfg, goals] = await Promise.all([app.backend.merchList(), app.backend.wallet(s), app.backend.myOrders(s), app.backend.config(), app.backend.goalsList().catch(() => [] as Goal[])]);
+    lastGoals = goals; lastBalance = wallet.balance;
     app.cfg = cfg;
     const staff = s.role === 'staff' || s.role === 'admin';
     const mine = (id: string) => orders.filter((o) => o.itemId === id && o.status !== 'cancelled').length;
@@ -56,6 +78,7 @@ export function renderShop(app: App) {
     body.innerHTML = `
       <div class="card row wallet">${starSvg(30)}<div class="grow"><div class="small muted">Баллы на счёте</div><div style="font-family:var(--head);font-size:26px;color:var(--gold2)">${fmt(wallet.balance)}</div>
         <div class="small muted">заработано ${fmt(wallet.earned)} · потрачено ${fmt(wallet.spent)}${wallet.casino ? `, из них проиграно в колесе ${fmt(wallet.casino)}` : ''}. Рейтинг от покупок не падает.</div></div></div>
+      ${goals.filter((g) => g.status !== 'hidden').map((g) => goalCard(g, staff)).join('')}
       ${cfg.shopOpen ? '' : '<div class="card small" style="border-color:var(--gold)"><b>Магазин мерча сейчас закрыт.</b> Он работает, когда его открывают организаторы, — об этом сообщат в эфире и в боте. А пока можно присмотреться и копить баллы.</div>'}
       ${orders.filter((o) => o.status === 'reserved').length ? `<div class="card col" style="gap:6px;border-color:var(--green)"><b>Мои покупки — забрать у организаторов</b>
         ${orders.filter((o) => o.status === 'reserved').map((o) => orderRow(o)).join('')}
@@ -71,6 +94,32 @@ export function renderShop(app: App) {
   onAct(node, {
     tab: (t) => { tab = t.dataset.v as typeof tab; draw(); },
     qr: () => openMyQr(app),
+    refresh: () => { haptic(); draw(); },
+    donate: (t) => {
+      const g = lastGoals.find((x) => x.id === Number(t.dataset.id));
+      if (!g) return;
+      const left = g.target - g.raised;
+      const m = modal(`<div class="col" style="gap:10px"><h2 style="font-size:22px">Донат в «${esc(g.title)}»</h2>
+        <div class="small muted">Баллы уходят со счёта магазина, рейтинг не падает. Осталось собрать <b class="gold">${fmt(left)}</b>. На счёте у тебя ${fmt(lastBalance)}.</div>
+        <div class="row" style="gap:6px;flex-wrap:wrap">${[50, 100, 250, 500, 1000].filter((v) => v <= Math.max(lastBalance, 50)).map((v) => `<button class="btn btn-ghost btn-sm" data-amt="${v}">${fmt(v)}</button>`).join('')}<button class="btn btn-ghost btn-sm" data-amt="${Math.max(0, Math.min(lastBalance, left))}">Всё</button></div>
+        <input class="input-ans" type="number" inputmode="numeric" min="1" data-v placeholder="Сколько баллов" value="${Math.min(100, Math.max(0, Math.min(lastBalance, left)))}">
+        <button class="btn btn-gold btn-block" data-ok>${starSvg(16)} Задонатить</button><button class="btn btn-ghost btn-block" data-close>Не сейчас</button>
+        <div class="small muted">Лучших спонсоров из топа организаторы наградят отдельно!</div></div>`);
+      const inp = $(m.root, '[data-v]') as HTMLInputElement;
+      m.root.querySelectorAll<HTMLButtonElement>('[data-amt]').forEach((b) => b.addEventListener('click', () => { inp.value = b.dataset.amt!; haptic(); }));
+      $(m.root, '[data-ok]').addEventListener('click', async () => {
+        const amt = Math.round(Number(inp.value) || 0);
+        if (amt < 1) { toast('Впиши, сколько баллов', 'bad'); return; }
+        const b = $(m.root, '[data-ok]') as HTMLButtonElement;
+        b.disabled = true;
+        try {
+          const r = await app.backend.goalDonate(g.id, amt);
+          m.close(); haptic('ok');
+          toast(r.status === 'done' ? `Цель собрана! Ты закрыл её донатом ${fmt(r.given)}` : `+${fmt(r.given)} в «${g.title}» — спасибо!`, 'ok');
+          draw();
+        } catch (e) { b.disabled = false; haptic('bad'); toast((e as Error).message, 'bad'); }
+      });
+    },
     buy: async (t) => {
       const items = await app.backend.merchList();
       const it = items.find((x) => x.id === t.dataset.id);

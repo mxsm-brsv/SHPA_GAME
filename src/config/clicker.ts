@@ -19,16 +19,29 @@ export const CLICKER = {
   maxTapsPerSecond: 12,
   /** бесплатный полный запас энергии, раз в день */
   boostsPerDay: 3,
-  maxUpgrade: 15,
+  /** 4 ступени по 15 уровней: у каждой ступени своё название и цены */
+  maxUpgrade: 60,
+  tierSize: 15,
 };
 
 export type UpgradeId = 'tap' | 'energy' | 'regen';
 
-export const UPGRADES: { id: UpgradeId; name: string; icon: string; text: (lvl: number) => string; cost: (lvl: number) => number }[] = [
-  { id: 'tap', name: 'Сила тапа', icon: 'bolt', text: (l) => `+${Math.round(l * CLICKER.tapPerLvl * 100)}% профкоинов за тап`, cost: (l) => Math.round(200 * Math.pow(1.6, l)) },
-  { id: 'energy', name: 'Выносливость', icon: 'heart', text: (l) => `+${l * CLICKER.energyPerLvl} к запасу энергии`, cost: (l) => Math.round(300 * Math.pow(1.7, l)) },
-  { id: 'regen', name: 'Кофе-брейк', icon: 'cup', text: (l) => `энергия восстанавливается на ${Math.round(l * CLICKER.regenPerLvl * 100)}% быстрее`, cost: (l) => Math.round(400 * Math.pow(1.8, l)) },
+/** Цена уровня: ступень t (по 15 уровней) стартует вдвое дороже предыдущей стартовой и дорожает быстрее. */
+const tierCost = (base: number, g: number) => (l: number) => {
+  const t = Math.floor(l / CLICKER.tierSize), k = l % CLICKER.tierSize;
+  return Math.round(base * Math.pow(2, t) * Math.pow(g + 0.15 * t, k));
+};
+
+export const UPGRADES: { id: UpgradeId; name: string; tiers: string[]; icon: string; text: (lvl: number) => string; cost: (lvl: number) => number }[] = [
+  { id: 'tap', name: 'Сила тапа', tiers: ['Сила тапа', 'Двойной клик', 'Пальцы-молнии', 'Рука профорга'], icon: 'bolt', text: (l) => `+${Math.round(l * CLICKER.tapPerLvl * 100)}% профкоинов за тап`, cost: tierCost(200, 1.6) },
+  { id: 'energy', name: 'Выносливость', tiers: ['Выносливость', 'Второе дыхание', 'Железный график', 'Энергия ШПА'], icon: 'heart', text: (l) => `+${l * CLICKER.energyPerLvl} к запасу энергии`, cost: tierCost(300, 1.7) },
+  { id: 'regen', name: 'Кофе-брейк', tiers: ['Кофе-брейк', 'Энергетик', 'Тихий час', 'Режим «Выезд»'], icon: 'cup', text: (l) => `энергия восстанавливается на ${Math.round(l * CLICKER.regenPerLvl * 100)}% быстрее`, cost: tierCost(400, 1.8) },
 ];
+/** Название и номер ступени для уровня (уровень 0–14 — первая ступень и т. д.). */
+export function upgradeTier(u: { tiers: string[] }, lvl: number) {
+  const t = Math.min(u.tiers.length - 1, Math.floor(lvl / CLICKER.tierSize));
+  return { t, name: u.tiers[t], inTier: lvl - t * CLICKER.tierSize };
+}
 
 /** Звания активиста по личному вкладу в ПБ (опыт зданиям). */
 export const CONTRIB_TITLES = [

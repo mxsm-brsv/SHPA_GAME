@@ -45,7 +45,9 @@ export interface Announcement { id: string; text: string; kind: 'info' | 'alert'
 export interface ScanRow { at: number; player: string; group?: string | null; faction: FactionId; kind: 'lecture' | 'speed' | 'cache' | 'cache_gold' | 'egg' | 'word'; title: string; points: number }
 export interface RosterRow { id: string; fio: string; faction: FactionId; group: string; role: Role; bound: boolean; tg?: boolean }
 /** Баллы на мерч: заработано (рейтинг) − потрачено (заказы и проигрыш в колесе). casino — сколько из потраченного ушло в колесо. */
-export interface Wallet { earned: number; spent: number; balance: number; casino?: number }
+export interface Wallet { earned: number; spent: number; balance: number; casino?: number; goals?: number }
+/** Сбор «как на DonationAlerts»: общая цель, донаты баллами, топ спонсоров. */
+export interface Goal { id: number; title: string; text: string; target: number; raised: number; donors: number; mine: number; status: 'open' | 'done' | 'hidden'; effect: 'open_shop' | null; factions: string[] | null; top: { name: string; faction: string; amount: number }[] }
 export interface GameConfig {
   shopOpen: boolean; testMode: boolean; requireGroup: boolean;
   /** Кто отмечает на блоках и начисляет баллы (null — все организаторы) */
@@ -134,6 +136,13 @@ export interface Backend {
   staffMerchSave(item: Partial<MerchItem> & { name: string }): Promise<void>;
   /** Все товары, включая скрытые (для панели). */
   staffMerchAll(): Promise<MerchItem[]>;
+  /** Все цены разом на ±pct %. Возвращает, сколько товаров изменено. */
+  staffMerchPriceAll(pct: number): Promise<number>;
+  /** Отменить все невыданные заказы: баллы и штуки возвращаются. */
+  staffOrdersCancelPending(): Promise<{ orders: number; points: number }>;
+  goalsList(): Promise<Goal[]>;
+  goalDonate(id: number, amount: number): Promise<Goal & { given: number; wallet: Wallet }>;
+  staffGoalSave(g: Partial<Goal> & { id?: number }): Promise<number>;
   staffMerchImport(text: string): Promise<string>;
   staffMerchDelete(id: string): Promise<void>;
   staffOrders(): Promise<MerchOrder[]>;

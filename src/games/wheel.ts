@@ -75,6 +75,16 @@ export function rigLanding(m: Exclude<Mult, 10>, rnd = Math.random) {
   return { sector: o.i, kind: o.kind, final, hold, tease };
 }
 
+/** Для организаторов — витрина: ×10 и ×2 выпадают часто, ×0 тоже бывает. Показать участникам, что выиграть можно. */
+function staffPick(rnd = Math.random): Mult { const r = rnd(); return r < 0.35 ? 10 : r < 0.72 ? 2 : 0; }
+function straightLanding(m: Mult, rnd = Math.random) {
+  const idx = WHEEL.map((x, i) => (x.mult === m ? i : -1)).filter((i) => i >= 0);
+  const i = idx[Math.floor(rnd() * idx.length)];
+  const [a0, a1] = sectorSpan(i);
+  const f = a0 + (a1 - a0) * (0.3 + rnd() * 0.4);
+  return { sector: i, kind: 'creep' as const, final: f, hold: f, tease: m };
+}
+
 function wheelSvg() {
   const R = 150, C = 160;
   const pt = (deg: number, r: number) => { const a = ((deg - 90) * Math.PI) / 180; return `${(C + r * Math.cos(a)).toFixed(2)} ${(C + r * Math.sin(a)).toFixed(2)}`; };
@@ -243,8 +253,8 @@ export function openWheel(app: App, ctx?: PlayCtx) {
     } else s.coins -= stake;
     drawTop(); drawBets();
     haptic('heavy');
-    const m: Exclude<Mult, 10> = usePts ? 0 : rigPick(c);
-    const land = rigLanding(m);
+    const m: Mult = staff ? staffPick() : usePts ? 0 : rigPick(c);
+    const land = m === 0 || m === 1 ? rigLanding(m) : staff ? straightLanding(m) : rigLanding(m as Exclude<Mult, 10>);
     // угол колеса a показывает под стрелкой точку θ = −a (mod 360)
     const turns = 4 + Math.floor(Math.random() * 3);
     const from = angle;
@@ -263,13 +273,15 @@ export function openWheel(app: App, ctx?: PlayCtx) {
       if (done) return;
       done = true; cancelAnimationFrame(raf);
       angle = aFinal; setRot(angle);
-      const win = usePts ? 0 : stake * m;
-      if (usePts) { if (!staff) { c.pts = (c.pts ?? 0) + stake; c.ptsSpins = (c.ptsSpins ?? 0) + 1; } if (land.tease === 10) c.near++; }
+      const win = usePts && !staff ? 0 : stake * m;
+      if (staff) { if (usePts) { staffPts += win; pts = staffPts; } else s.coins += win; }
+      else if (usePts) { c.pts = (c.pts ?? 0) + stake; c.ptsSpins = (c.ptsSpins ?? 0) + 1; if (land.tease === 10) c.near++; }
       else { s.coins += win; rigRecord(c, m, stake, land.tease === 10); }
       history.unshift(m); drawHist();
       spinning = false; finishNow = null;
       drawTop(); drawBets(); app.update(false);
-      if (m === 2) { haptic('ok'); burst(30, false); banner(`×2 · +${fmt(win)}! Ещё разок?`, 'win'); }
+      if (m === 10) { haptic('heavy'); burst(70, true); banner(`×10!!! +${fmt(win)}`, 'win'); setTimeout(() => haptic('ok'), 180); }
+      else if (m === 2) { haptic('ok'); burst(30, false); banner(`×2 · +${fmt(win)}! Ещё разок?`, 'win'); }
       else if (m === 1) { haptic('tap'); banner('×1 · почти ×2!', 'even'); }
       else { haptic('bad'); banner(usePts ? `${NEAR_TEXT[Math.floor(Math.random() * NEAR_TEXT.length)]}<br><small>−${fmt(stake)} баллов</small>` : NEAR_TEXT[Math.floor(Math.random() * NEAR_TEXT.length)], 'lose'); }
     };

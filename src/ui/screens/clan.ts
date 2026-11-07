@@ -1,6 +1,6 @@
 // «Моё ПБ»: общие здания ратуши, участники и их вклад, вложение профкоинов. Плюс личные улучшения кликера.
 import { BUILDINGS, CLAN, buildingLevel, type BuildingId } from '../../config/clan';
-import { UPGRADES, CLICKER, contribTitle } from '../../config/clicker';
+import { UPGRADES, CLICKER, contribTitle, upgradeTier } from '../../config/clicker';
 import { factionById } from '../../config/factions';
 import { totemSvg } from '../../art/totems';
 import { coinSvg, icon } from '../../art/icons';
@@ -75,8 +75,10 @@ export function openUpgrades(app: App) {
         const lvl = s.clicker.lvl[u.id];
         const max = lvl >= CLICKER.maxUpgrade;
         const cost = upgradeCostOf(s, u.id);
-        return `<div class="li"><div style="width:40px;height:40px;border-radius:12px;background:#ffffff12;display:grid;place-items:center">${icon(u.icon, 22, '#ffd76a')}</div>
-          <div class="grow"><b>${esc(u.name)} · ур. ${lvl}</b><div class="small muted">${esc(u.text(lvl + (max ? 0 : 1)))}${max ? '' : ' на след. уровне'}</div></div>
+        const tr = upgradeTier(u, max ? lvl - 1 : lvl);
+        const tierColor = ['#ffd76a', '#7cc8ff', '#c08bff', '#ff7aa2'][tr.t];
+        return `<div class="li"><div style="width:40px;height:40px;border-radius:12px;background:#ffffff12;display:grid;place-items:center;box-shadow:inset 0 0 0 2px ${tierColor}66">${icon(u.icon, 22, tierColor)}</div>
+          <div class="grow"><b>${esc(tr.name)} · ур. ${max ? CLICKER.tierSize : tr.inTier}${tr.t > 0 || lvl >= CLICKER.tierSize ? ` <span class="small" style="color:${tierColor}">ступень ${tr.t + 1} из ${u.tiers.length}</span>` : ''}</b><div class="small muted">${esc(u.text(lvl + (max ? 0 : 1)))}${max ? '' : ' на след. уровне'}</div></div>
           <button class="btn btn-gold btn-sm" data-act="buy" data-id="${u.id}" ${max || s.coins < cost ? 'disabled' : ''}>${max ? 'макс.' : `${coinSvg(14)} ${fmt(cost)}`}</button></div>`;
       }).join('')}</div>
       <div class="small muted" style="margin-top:8px">Золотой тап (✨): ×${CLICKER.goldenMult} монет и ×${CLICKER.goldenXp} опыта. Комбо — быстрые тапы подряд, до ×${CLICKER.comboMax}. Больше ${CLICKER.maxTapsPerSecond} тапов в секунду не засчитываются.</div>`;

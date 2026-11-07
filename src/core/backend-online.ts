@@ -17,7 +17,7 @@ import type { CasinoStats } from './casino';
 import type { Duel, DuelAnswer, DuelList } from './duel';
 import { SKIRMISH_WIN_COINS } from '../config/economy';
 import { fetchLiveJson, parseMerchLines, parseRosterLines } from './backend-demo';
-import type { CodeWord, ScanRow,
+import type { CodeWord, Goal, ScanRow,
   Announcement, Backend, ClanView, FactionRow, GameConfig, LeaderRow, LectureSession, LoginParams, LoginResult,
   MySubmission, Note, PlayerRef, QrSessionInput, RosterRow, SharedTest, Submission, SubmitResult, TaskPayload, UserQuestion, Wallet,
   DutyZone, TeamMember,
@@ -355,6 +355,11 @@ export class OnlineBackend implements Backend {
   async staffForceRound() { await this.rpc('staff_force_round'); }
   async staffStartEvent(id: string) { await this.rpc('staff_start_event', { p_id: id }); }
   async staffMerchSave(item: Partial<MerchItem> & { name: string }) { await this.rpc('staff_merch_save', { p_item: item }); }
+  async staffMerchPriceAll(pct: number) { return this.rpc<number>('staff_merch_price_all', { p_pct: pct }); }
+  async staffOrdersCancelPending() { return this.rpc<{ orders: number; points: number }>('staff_orders_cancel_pending'); }
+  async goalsList() { return (await this.rpc<Goal[] | null>('goals_list')) ?? []; }
+  async goalDonate(id: number, amount: number) { return this.rpc<Goal & { given: number; wallet: Wallet }>('goal_donate', { p_goal: id, p_amount: amount }); }
+  async staffGoalSave(g: Partial<Goal> & { id?: number }) { return this.rpc<number>('staff_goal_save', { p: g }); }
   async staffMerchAll() { return (await this.rpc<MerchItem[] | null>('staff_merch_all').catch(() => null)) ?? (await this.merchList()); }
   async staffMerchImport(text: string) {
     const rows = parseMerchLines(text);

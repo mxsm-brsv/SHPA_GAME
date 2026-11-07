@@ -19,6 +19,7 @@ export interface MerchItem {
   unlimited?: boolean;       // без ограничения количества
   step?: number;             // цена растёт на столько с каждой покупкой
   sold?: number;             // сколько уже купили (для растущей цены)
+  factions?: string[] | null; // лот только для этих ПБ (пусто — для всех)
   lastSaleAt: number;     // с этого момента считается автоскидка
   active: boolean;
 }

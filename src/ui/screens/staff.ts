@@ -6,7 +6,7 @@ import { gameById } from '../../config/minigames';
 import { DEFAULT_AUTO, merchPrice, type MerchItem, type MerchOrder } from '../../config/merch';
 import { economyPlan } from '../../config/economy-plan';
 import { icon, starSvg } from '../../art/icons';
-import type { Announcement, CodeWord, DutyZone, PlayerRef, RosterRow, ScanRow, Submission, TeamMember, UserQuestion } from '../../core/backend';
+import type { Announcement, CodeWord, DutyZone, Goal, PlayerRef, RosterRow, ScanRow, Submission, TeamMember, UserQuestion } from '../../core/backend';
 import { rightAnswerText } from '../../core/questions';
 import { haptic } from '../../core/telegram';
 import { canScanAny, scanAny } from '../../lib/scan';
@@ -29,6 +29,9 @@ const ZONES: [DutyZone, string, string][] = [
 const zoneName = (z: DutyZone) => ZONES.find((x) => x[0] === z)?.[1] ?? z;
 const ago = (t: number) => { const m = Math.max(0, Math.round((Date.now() - t) / 60000)); return m < 1 ? 'только что' : m < 60 ? `${m} мин назад` : `${Math.floor(m / 60)} ч назад`; };
 const REASONS = ['Не видно, что задание выполнено', 'Нужна ссылка, а не скрин', 'Не по условиям задания', 'Повтор чужой работы'];
+
+/** Кнопки-переключатели ПБ (выбранные — золотые). */
+const pbChips = (sel: string[] | null) => PLAYABLE_FACTIONS.map((f) => `<button class="btn btn-sm ${sel?.includes(f.id) ? 'btn-gold' : 'btn-ghost'}" data-pbc="${f.id}" style="border-left:4px solid ${f.color};padding:4px 8px">${esc(f.short)}</button>`).join('');
 
 export function openStaff(app: App) {
   let tab: Tab = lastTab;
@@ -206,6 +209,7 @@ export function openStaff(app: App) {
   const drawMerch = async () => {
     body.innerHTML = '<div class="muted">Загрузка…</div>';
     const shopCfg = await app.backend.config().catch(() => app.cfg);
+    const goals = await app.backend.goalsList().catch(() => [] as Goal[]);
     const all = await app.backend.staffMerchAll().catch(() => app.backend.merchList());
     const items = all.filter((x) => x.active);
     const hidden = all.filter((x) => !x.active);
@@ -215,6 +219,25 @@ export function openStaff(app: App) {
         <div class="row" style="gap:8px"><b class="grow">Магазин ${shopCfg.shopOpen ? 'открыт' : 'закрыт'}</b><span class="tag">${shopCfg.shopOpen ? 'участники покупают' : 'только смотрят'}</span></div>
         <div class="small muted">${shopCfg.shopOpen ? 'Закрой, когда мерч на сегодня выдан или нужно остановить покупки. Уже сделанные заказы останутся.' : 'Открой, когда готов стол выдачи. Участники увидят сообщение в эфире и в боте.'}</div>
         <button class="btn ${shopCfg.shopOpen ? 'btn-red' : 'btn-green'} btn-block" data-shop="${shopCfg.shopOpen ? '0' : '1'}">${shopCfg.shopOpen ? 'Закрыть магазин' : 'Открыть магазин'}</button></div>
+      <div class="card col" style="gap:8px"><div class="row" style="gap:8px"><b class="grow">Инструменты магазина</b><button class="btn btn-ghost btn-sm" data-mtool="refresh">${icon('refresh', 14)} Обновить</button></div>
+        <div class="small muted">Цены всех товаров разом:</div>
+        <div class="row" style="gap:6px;flex-wrap:wrap">${[-10, 10, 25, 50].map((p) => `<button class="btn btn-ghost btn-sm" data-mpct="${p}">${p > 0 ? '+' : '−'}${Math.abs(p)}%</button>`).join('')}
+          <input class="input-ans" style="width:84px" type="number" data-mpctv placeholder="±%"><button class="btn btn-ghost btn-sm" data-mpct="custom">Применить</button></div>
+        <button class="btn btn-ghost btn-block" data-mtool="cancel">Вернуть невыданное: отменить все заказы, которые не отмечены выданными</button>
+        <button class="btn btn-gold btn-block" data-mtool="new">${icon('plus', 16)} Новый лот</button></div>
+      <div class="card col" style="gap:10px"><div class="row" style="gap:8px"><b class="grow">Сборы — как на DonationAlerts</b><button class="btn btn-gold btn-sm" data-goal="new">${icon('plus', 14)} Новый сбор</button></div>
+        <div class="small muted">Общая цель: участники донатят баллы со счёта магазина, виден топ спонсоров. Сбор «Открыть магазин» сам откроет магазин, когда наберёт цель. Сбор можно сделать для всех ПБ или только для выбранных.</div>
+        ${goals.map((g) => `<div class="card col goal-edit" style="gap:6px;background:#00000022" data-goalid="${g.id}">
+          <div class="row" style="gap:8px"><b class="grow">${fmt(g.raised)} из ${fmt(g.target)} · ${g.donors} спонс.</b><span class="tag">${g.status === 'done' ? 'собрано' : g.status === 'hidden' ? 'скрыт' : 'идёт'}</span></div>
+          <input class="input-ans" data-g="title" value="${esc(g.title)}" maxlength="80" placeholder="Название">
+          <textarea class="input-ans" data-g="text" rows="2" maxlength="300" placeholder="Описание — увидят участники">${esc(g.text)}</textarea>
+          <label class="small">Цель, баллов<input class="input-ans" type="number" data-g="target" value="${g.target}" min="1"></label>
+          <div class="row" style="gap:5px;flex-wrap:wrap">${pbChips(g.factions)}</div>
+          <label class="row small" style="gap:6px"><input type="checkbox" data-g="effect" ${g.effect === 'open_shop' ? 'checked' : ''}> Когда соберут — открыть магазин</label>
+          <select class="input-ans" data-g="status"><option value="open" ${g.status === 'open' ? 'selected' : ''}>Идёт сбор</option><option value="done" ${g.status === 'done' ? 'selected' : ''}>Собрано (закрыт)</option><option value="hidden" ${g.status === 'hidden' ? 'selected' : ''}>Скрыт от участников</option></select>
+          ${g.top.length ? `<div class="small muted">Топ: ${g.top.slice(0, 5).map((t, i) => `${i + 1}. ${esc(t.name)} — ${fmt(t.amount)}`).join(' · ')}</div>` : ''}
+          <button class="btn btn-gold btn-sm" data-goal="save" data-id="${g.id}">Сохранить сбор</button></div>`).join('') || '<div class="small muted">Сборов пока нет</div>'}
+      </div>
       <div class="card col" style="gap:4px"><b>Хватит ли баллов на весь мерч</b>
         <div class="small">Один предмет каждого вида сейчас стоит <b class="gold">${fmt(allKinds)}</b> баллов. По расчёту заданий и игры за 5–8 ноября: минимум ~${fmt(plan.min)}, активный участник ~${fmt(plan.active)}, максимум ~${fmt(plan.max)}.</div>
         <div class="small ${allKinds <= plan.active ? 'muted' : ''}" style="${allKinds <= plan.active ? '' : 'color:#ff8a8a'}">${allKinds <= plan.active ? 'Активный участник может купить по одному каждого вида, пока товар не закончится.' : 'Дороже, чем набирает активный участник: снизьте цены или добавьте баллов за задания.'}</div></div>
@@ -227,6 +250,8 @@ export function openStaff(app: App) {
             <input class="input-ans grow" data-f="name" value="${esc(it.name)}" maxlength="60" placeholder="Название"></div>
           <input class="input-ans" data-f="text" value="${esc(it.text ?? '')}" maxlength="200" placeholder="Описание (видят участники)">
           <label class="row small" style="gap:6px"><input type="checkbox" data-f="unlimited" ${it.unlimited ? 'checked' : ''}> Без ограничений по количеству — цена растёт с каждой покупкой</label>
+          <div class="small muted">Для кого лот (ничего не выбрано — для всех ПБ):</div>
+          <div class="row" style="gap:5px;flex-wrap:wrap">${pbChips(it.factions ?? null)}</div>
           ${it.unlimited ? `<div class="small gold">Купили ${fmt(it.sold ?? 0)}. «Цена» — стартовая, «Шаг» — на сколько дорожает после каждой покупки. «Осталось» не важно.</div>` : ''}
           <div class="mgrid">
             ${it.unlimited ? `<label>Шаг цены<input class="input-ans" type="number" data-f="step" value="${it.step ?? 1}" min="0" max="1000"></label>` : `<label>Осталось<input class="input-ans" type="number" data-f="stock" value="${it.stock}" min="0"></label>`}
@@ -251,6 +276,39 @@ export function openStaff(app: App) {
         <div class="small muted">По строке на товар: <b>Название; количество; цена</b>. Можно с эмодзи в начале и описанием четвёртым полем. Из Excel — просто вставь столбцы. Совпадение по названию обновляет количество и цену.</div>
         <textarea class="textarea" data-imp placeholder="🏷️ Ремувки; 3; 150&#10;Шоппер ППО; 5; 300; сумка с логотипом"></textarea>
         <button class="btn btn-gold btn-block" data-act="mimp">Загрузить</button></div>`;
+    body.querySelectorAll<HTMLButtonElement>('[data-pbc]').forEach((b) => b.addEventListener('click', () => { b.classList.toggle('btn-gold'); b.classList.toggle('btn-ghost'); haptic(); }));
+    body.querySelector('[data-mtool="refresh"]')?.addEventListener('click', () => { haptic(); drawMerch(); });
+    body.querySelectorAll<HTMLButtonElement>('[data-mpct]').forEach((b) => b.addEventListener('click', async () => {
+      const pct = b.dataset.mpct === 'custom' ? Math.round(Number((body.querySelector('[data-mpctv]') as HTMLInputElement).value) || 0) : Number(b.dataset.mpct);
+      if (!pct) { toast('Впиши процент, например 15 или −10', 'bad'); return; }
+      if (!confirmTap(b, `Всем ${pct > 0 ? '+' : '−'}${Math.abs(pct)}%?`)) return;
+      try { const n = await app.backend.staffMerchPriceAll(pct); toast(`Цены ${pct > 0 ? 'подняты' : 'снижены'} на ${Math.abs(pct)}% у ${n} товаров`, 'ok'); haptic('ok'); drawMerch(); }
+      catch (e) { toast((e as Error).message, 'bad'); }
+    }));
+    body.querySelector<HTMLButtonElement>('[data-mtool="cancel"]')?.addEventListener('click', async (e) => {
+      const b = e.currentTarget as HTMLButtonElement;
+      if (!confirmTap(b, 'Точно? Все невыданные заказы отменятся — нажми ещё раз')) return;
+      try { const r = await app.backend.staffOrdersCancelPending(); toast(`Отменено заказов: ${r.orders}. Участникам вернулось ${fmt(r.points)} баллов, штуки — в магазине`, 'ok'); haptic('ok'); drawMerch(); }
+      catch (err) { toast((err as Error).message, 'bad'); }
+    });
+    body.querySelector('[data-mtool="new"]')?.addEventListener('click', async () => {
+      try { await app.backend.staffMerchSave({ name: `Новый лот ${new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`, emoji: '🎁', price: 100, stock: 1, perPerson: 1, discount: 0, text: '' }); toast('Лот добавлен — он внизу списка, отредактируй и сохрани', 'ok'); drawMerch(); }
+      catch (err) { toast((err as Error).message, 'bad'); }
+    });
+    body.querySelector('[data-goal="new"]')?.addEventListener('click', async () => {
+      try { await app.backend.staffGoalSave({ title: 'Новый сбор', text: '', target: 1000, status: 'hidden' }); toast('Сбор создан скрытым — заполни и выбери «Идёт сбор»', 'ok'); drawMerch(); }
+      catch (err) { toast((err as Error).message, 'bad'); }
+    });
+    body.querySelectorAll<HTMLButtonElement>('[data-goal="save"]').forEach((b) => b.addEventListener('click', async () => {
+      const box = b.closest<HTMLElement>('[data-goalid]')!;
+      const val = (k: string) => (box.querySelector(`[data-g="${k}"]`) as HTMLInputElement).value;
+      const factions = Array.from(box.querySelectorAll<HTMLElement>('[data-pbc].btn-gold')).map((x) => x.dataset.pbc!);
+      try {
+        await app.backend.staffGoalSave({ id: Number(b.dataset.id), title: val('title').trim(), text: val('text').trim(), target: Math.max(1, Math.round(Number(val('target')) || 1)),
+          factions, effect: (box.querySelector('[data-g="effect"]') as HTMLInputElement).checked ? 'open_shop' : null, status: val('status') as 'open' | 'done' | 'hidden' });
+        toast('Сбор сохранён', 'ok'); haptic('ok'); drawMerch();
+      } catch (err) { toast((err as Error).message, 'bad'); }
+    }));
     body.querySelector<HTMLButtonElement>('[data-shop]')?.addEventListener('click', async (e) => {
       const b = e.currentTarget as HTMLButtonElement;
       const open = b.dataset.shop === '1';
@@ -620,9 +678,10 @@ export function openStaff(app: App) {
       const name = str('name');
       if (!name) { toast('Название не может быть пустым', 'bad'); return; }
       const unlimited = (card.querySelector('[data-f="unlimited"]') as HTMLInputElement).checked;
+      const factions = Array.from(card.querySelectorAll<HTMLElement>('[data-pbc].btn-gold')).map((x) => x.dataset.pbc!);
       const stockIn = card.querySelector('[data-f="stock"]') as HTMLInputElement | null;
       const stepIn = card.querySelector('[data-f="step"]') as HTMLInputElement | null;
-      const patch: Partial<MerchItem> & { name: string } = { id: it.id, name, emoji: str('emoji'), text: str('text'), unlimited,
+      const patch: Partial<MerchItem> & { name: string } = { id: it.id, name, emoji: str('emoji'), text: str('text'), unlimited, factions,
         step: unlimited ? Math.max(0, Math.round(Number(stepIn?.value ?? it.step ?? 1)) || (it.unlimited ? 0 : 1)) : 0,
         stock: Math.max(0, stockIn ? Number(stockIn.value) : it.stock), price: Math.max(1, v('price')), discount: Math.max(0, Math.min(90, v('discount'))), perPerson: Math.max(1, v('perPerson')), auto: auto ? it.auto ?? DEFAULT_AUTO : null, tiers: readTiers(card) };
       try { await app.backend.staffMerchSave(patch); toast(`«${name}» сохранён`, 'ok'); drawMerch(); } catch (e) { toast((e as Error).message, 'bad'); }
