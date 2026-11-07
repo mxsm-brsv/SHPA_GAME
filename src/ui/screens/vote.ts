@@ -95,6 +95,6 @@ export function openVote(app: App) {
     st = s; app.vote = s;
     if (!(document.activeElement instanceof HTMLInputElement && box.contains(document.activeElement))) draw();
   };
-  const timer = window.setInterval(load, 4000);
+  const timer = window.setInterval(() => { if (!document.hidden) load(); }, 8000);
   draw(); load();
 }

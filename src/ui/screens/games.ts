@@ -60,7 +60,7 @@ export function renderGames(app: App) {
       box.innerHTML = `${icon('bus', 36, '#e6d5ff')}<div class="grow"><b>Внешние мероприятия</b><div class="small muted">${n ? `Следующее: «${esc(n.ev.name)}» в ${new Date(n.startAt + 3 * 3600_000).toISOString().slice(11, 16)}` : 'Расписание мероприятий закончилось'}</div></div>`;
     }
   };
-  app.backend.getWorld(s).then((w) => { world = w; drawEvent(); }).catch(() => {});
+  app.cached('world-ev', 60_000, () => app.backend.getWorld(s)).then((w) => { world = w; drawEvent(); }).catch(() => {});
   app.onTick(() => { const t = node.querySelector('[data-evt]'); if (t && world?.event) t.textContent = mmss(world.event.endAt - Date.now()); });
 
   onAct(node, {

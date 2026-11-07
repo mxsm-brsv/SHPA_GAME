@@ -273,7 +273,7 @@ export function openStaff(app: App) {
       const fresh = await app.backend.voteState().catch(() => null);
       // не перерисовываем, пока организатор печатает в форме
       if (fresh && !body.contains(document.activeElement as Node) && !body.querySelector('details[open]')) { v = fresh; render(); } else if (fresh) v = fresh;
-    }, 2500);
+    }, 5000);
     stopTimer = () => clearInterval(t);
   };
 
@@ -438,7 +438,7 @@ export function openStaff(app: App) {
       }
     });
     await load();
-    const timer = window.setInterval(() => { if (body.isConnected && tab === 'words') load(); }, 5000);
+    const timer = window.setInterval(() => { if (body.isConnected && tab === 'words' && !document.hidden) load(); }, 15000);
     stopTimer = () => clearInterval(timer);
   };
 
@@ -451,7 +451,7 @@ export function openStaff(app: App) {
         <input class="input-ans" data-sq placeholder="Фамилия, группа, тайник или название блока" value="${esc(scanQ)}">
         <div class="small muted" data-ssum>Загрузка…</div></div>
       <div class="list" data-sl></div>
-      <div class="small muted" style="margin-top:8px">Новые сверху, обновляется сам каждые 8 секунд. Баллы — сколько реально начислено за этот скан; «0» — уже был лимит (например, пасхалок). Организаторские проверки кодов сюда не попадают.</div>`;
+      <div class="small muted" style="margin-top:8px">Новые сверху, обновляется сам каждые 20 секунд. Баллы — сколько реально начислено за этот скан; «0» — уже был лимит (например, пасхалок). Организаторские проверки кодов сюда не попадают.</div>`;
     let rows: ScanRow[] = [];
     const today = new Date().toDateString();
     const when = (ms: number) => {
@@ -481,7 +481,7 @@ export function openStaff(app: App) {
     }));
     ($(body, '[data-sq]') as HTMLInputElement).addEventListener('input', (e) => { scanQ = (e.target as HTMLInputElement).value; render(); });
     await load();
-    const timer = window.setInterval(() => { if (body.isConnected && tab === 'scans') void load(); }, 8000);
+    const timer = window.setInterval(() => { if (body.isConnected && tab === 'scans' && !document.hidden) void load(); }, 20000);
     stopTimer = () => clearInterval(timer);
   };
 

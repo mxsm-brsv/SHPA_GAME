@@ -118,7 +118,7 @@ export function openVoteBoard(app: App) {
   };
 
   const load = async () => { const s = await app.backend.voteState().catch(() => null); if (s) { app.vote = s; draw(s); } };
-  const timer = window.setInterval(load, 2000);
+  const timer = window.setInterval(load, 3000);
   const close = () => { clearInterval(timer); node.remove(); if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); };
   $(node, '[data-x]').addEventListener('click', close);
   app.root.appendChild(node);

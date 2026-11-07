@@ -56,7 +56,7 @@ export class Sb {
     const tok = await this.token();
     const headers: Record<string, string> = { apikey: this.key, ...(tok ? { authorization: `Bearer ${tok}` } : {}), ...((init.headers ?? {}) as Record<string, string>) };
     const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), 15000);
+    const timer = setTimeout(() => ctl.abort(), 25000);
     let r: Response;
     try { r = await fetch(`${this.url}${path}`, { ...init, headers, signal: ctl.signal }); }
     catch { throw new SbError('Нет связи с сервером', 0); }
