@@ -23,7 +23,32 @@ jobs:
           echo "PROJECT_REF=$REF" >> "$GITHUB_ENV"
       - name: Статус проекта
         run: |
-          curl -s -m 20 -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" "https://api.supabase.com/v1/projects/$PROJECT_REF" | python3 -c "import sys,json; d=json.load(sys.stdin); print('status:', d.get('status'), '| region:', d.get('region'))" || true
+          curl -s -m 20 -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" "https://api.supabase.com/v1/projects/$PROJECT_REF" | python3 -c "import sys,json; d=json.load(sys.stdin); print('status:', d.get('status'), '| region:', d.get('region'), '| keys:', sorted(d.keys()), '| db:', {k:v for k,v in (d.get('database') or {}).items() if k!='host'})" || true
+          curl -s -m 20 -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" "https://api.supabase.com/v1/organizations" | python3 -c "import sys,json; [print('org plan:', o.get('plan'), o.get('billing_email','')[:0]) for o in json.load(sys.stdin)]" || true
+          SRK=$(curl -s -m 20 -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" "https://api.supabase.com/v1/projects/$PROJECT_REF/api-keys" | python3 -c "import sys,json; print(next((k['api_key'] for k in json.load(sys.stdin) if k.get('name')=='service_role'), ''))")
+          echo "::add-mask::$SRK"
+          curl -s -m 30 -u "service_role:$SRK" "https://$PROJECT_REF.supabase.co/customer/v1/privileged/metrics" > /tmp/m.txt || true
+          grep -E '^(node_load1|node_load5|node_memory_MemTotal_bytes|node_memory_MemAvailable_bytes|node_memory_SwapTotal_bytes|node_memory_SwapFree_bytes|node_cpu_seconds_total\{cpu="0",mode="(idle|iowait|steal|user|system)"\}|pg_stat_database_num_backends|node_pressure_cpu_waiting_seconds_total|node_pressure_memory_waiting_seconds_total|node_pressure_io_waiting_seconds_total)' /tmp/m.txt | head -30 || echo "метрик нет"
+          sleep 10
+          curl -s -m 30 -u "service_role:$SRK" "https://$PROJECT_REF.supabase.co/customer/v1/privileged/metrics" > /tmp/m2.txt || true
+          python3 - <<'PY'
+          import re
+          def rd(p):
+              d={}
+              for l in open(p):
+                  m=re.match(r'^(node_cpu_seconds_total\{cpu="(\d+)",mode="(\w+)"\}|node_pressure_(cpu|io|memory)_waiting_seconds_total)\s+([0-9.e+-]+)', l)
+                  if m: d[m.group(1)]=float(m.group(5))
+              return d
+          a,b=rd('/tmp/m.txt'),rd('/tmp/m2.txt')
+          tot={}
+          for k in b:
+              if k in a and 'cpu_seconds' in k:
+                  mode=re.search(r'mode="(\w+)"',k).group(1); tot[mode]=tot.get(mode,0)+b[k]-a[k]
+          s=sum(tot.values()) or 1
+          print('CPU за 10 с:', {k: f"{v/s*100:.0f}%" for k,v in sorted(tot.items(), key=lambda x:-x[1]) if v/s>0.005})
+          for k in b:
+              if 'pressure' in k and k in a: print(k, f"{(b[k]-a[k])/10*100:.0f}% времени ждали")
+          PY
           curl -s -m 20 -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" "https://api.supabase.com/v1/projects/$PROJECT_REF/health?services=auth&services=rest&services=db&services=realtime&services=pooler" | python3 -c "import sys,json; d=json.load(sys.stdin); [print(x.get('name'), x.get('status'), x.get('healthy'), str(x.get('error') or x.get('info') or '')[:300]) for x in (d if isinstance(d,list) else [d])]" || true
           ANON=$(curl -s -m 20 -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" "https://api.supabase.com/v1/projects/$PROJECT_REF/api-keys" | python3 -c "import sys,json; print(next((k['api_key'] for k in json.load(sys.stdin) if k.get('name')=='anon'), ''))")
           echo "::add-mask::$ANON"
