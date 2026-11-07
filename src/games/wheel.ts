@@ -138,7 +138,7 @@ export function openWheel(app: App, ctx?: PlayCtx) {
   sh.setSub('Ставка профкоинами или баллами · ×10 ждёт смелых');
   const staff = s.role === 'staff' || s.role === 'admin';
   let mode: 'coins' | 'pts' = 'coins';
-  let pts = 0; // баллы на счёте магазина
+  let pts = 0; // баллы на счёте магазина (у организатора — проверочные 1000, ничего не списывается)
   let bet = Math.min(100, Math.max(10, s.coins));
   let ptsBet = 25;
   let spinning = false, angle = 0, stopAnim = () => {};
@@ -147,8 +147,10 @@ export function openWheel(app: App, ctx?: PlayCtx) {
   const node = el(`<div class="wh-game">
     <div class="wh-wrap" data-wheel><div class="wh-pointer" data-ptr></div>${wheelSvg()}<div class="wh-fx" data-fx></div></div>
     <div class="wh-hist" data-hist></div>
-    ${staff ? '' : `<div class="chips wh-cur" data-cur><button class="chip on" data-m="coins">${coinSvg(14)} Профкоины</button><button class="chip" data-m="pts">${starSvg(14)} Баллы на мерч</button></div>`}
+    <div class="chips wh-cur" data-cur><button class="chip on" data-m="coins">${coinSvg(14)} Профкоины</button><button class="chip" data-m="pts">${starSvg(14)} Баллы на мерч</button></div>
     <div class="wh-bets" data-bets></div>
+    <label class="wh-own"><span>Своя ставка</span><input type="number" inputmode="numeric" min="1" step="1" placeholder="сумма" data-own aria-label="Своя ставка"></label>
+    ${staff ? '<div class="small muted center hidden" data-staffpts>Ты организатор: баллы здесь проверочные, со счёта ничего не списывается</div>' : ''}
     <button class="btn btn-gold btn-block wh-spin" data-spin>Крутить</button>
     <div class="small muted center" data-note>Во время вращения тапай по колесу — закрутится быстрее</div>
     <button class="btn btn-ghost btn-sm hidden" data-truth>${icon('info', 16)} Как устроено это колесо</button>
@@ -166,21 +168,35 @@ export function openWheel(app: App, ctx?: PlayCtx) {
       box.innerHTML = PTS_BETS.map((b) => `<button class="chip ${b === ptsBet ? 'on' : ''}" data-b="${b}" ${b > pts || spinning ? 'disabled' : ''}>${fmt(b)}</button>`).join('')
         + `<button class="chip ${ptsBet === pts && !PTS_BETS.includes(ptsBet) ? 'on' : ''}" data-b="all" ${pts < 1 || spinning ? 'disabled' : ''}>Всё</button>`;
       spinBtn.disabled = spinning || pts < 1 || ptsBet > pts || ptsBet < 1;
-      spinBtn.innerHTML = spinning ? 'Крутится…' : pts < 1 ? 'На счёте нет баллов' : `Крутить за ${starSvg(18)} ${fmt(Math.min(ptsBet, pts))} баллов`;
+      spinBtn.innerHTML = spinning ? 'Крутится…' : pts < 1 ? 'На счёте нет баллов' : ptsBet > pts ? `На счёте только ${fmt(pts)} баллов` : `Крутить за ${starSvg(18)} ${fmt(ptsBet)} баллов`;
       return;
     }
     box.innerHTML = BETS.map((b) => `<button class="chip ${b === bet ? 'on' : ''}" data-b="${b}" ${b > s.coins || spinning ? 'disabled' : ''}>${fmt(b)}</button>`).join('')
       + `<button class="chip ${bet === s.coins && !BETS.includes(bet) ? 'on' : ''}" data-b="all" ${s.coins < 10 || spinning ? 'disabled' : ''}>Всё</button>`;
-    spinBtn.disabled = spinning || s.coins < 10 || bet > s.coins;
-    spinBtn.innerHTML = spinning ? 'Крутится…' : s.coins < 10 ? 'Нужно хотя бы 10 профкоинов' : `Крутить за ${coinSvg(18)} ${fmt(bet)}`;
+    spinBtn.disabled = spinning || s.coins < 10 || bet > s.coins || bet < 10;
+    spinBtn.innerHTML = spinning ? 'Крутится…' : s.coins < 10 ? 'Нужно хотя бы 10 профкоинов' : bet > s.coins ? `У тебя только ${fmt(s.coins)}` : bet < 10 ? 'Ставка — от 10 профкоинов' : `Крутить за ${coinSvg(18)} ${fmt(bet)}`;
   };
-  const loadPts = async () => { const w = await app.backend.wallet(s).catch(() => null); if (w) pts = Math.max(0, w.balance); drawTop(); drawBets(); };
+  let staffPts = 1000;
+  const loadPts = async () => {
+    if (staff) { pts = staffPts; drawTop(); drawBets(); return; }
+    const w = await app.backend.wallet(s).catch(() => null); if (w) pts = Math.max(0, w.balance); drawTop(); drawBets();
+  };
+  // своя сумма: вводится числом, дальше ставка не больше того, что есть
+  const own = node.querySelector<HTMLInputElement>('[data-own]')!;
+  own.addEventListener('input', () => {
+    const v = Math.max(0, Math.floor(Number(own.value) || 0));
+    if (!v) return;
+    if (mode === 'pts') ptsBet = v; else bet = v;
+    drawBets();
+  });
   node.querySelector('[data-cur]')?.addEventListener('click', (e) => {
     const b = (e.target as HTMLElement).closest<HTMLElement>('[data-m]');
     if (!b || spinning) return;
     mode = b.dataset.m as 'coins' | 'pts';
     node.querySelectorAll<HTMLElement>('[data-cur] .chip').forEach((c2) => c2.classList.toggle('on', c2 === b));
     haptic();
+    own.value = '';
+    node.querySelector('[data-staffpts]')?.classList.toggle('hidden', mode !== 'pts');
     if (mode === 'pts') { drawBets(); loadPts(); } else { drawTop(); drawBets(); }
   });
   const drawHist = () => {
@@ -189,6 +205,7 @@ export function openWheel(app: App, ctx?: PlayCtx) {
   node.querySelector('[data-bets]')!.addEventListener('click', (e) => {
     const b = (e.target as HTMLElement).closest<HTMLElement>('[data-b]');
     if (!b || spinning) return;
+    own.value = '';
     if (mode === 'pts') ptsBet = b.dataset.b === 'all' ? pts : Number(b.dataset.b);
     else bet = b.dataset.b === 'all' ? s.coins : Number(b.dataset.b);
     haptic(); drawBets();
@@ -218,8 +235,11 @@ export function openWheel(app: App, ctx?: PlayCtx) {
     if (usePts) {
       // баллы списывает сервер до вращения: ставка баллами всегда проигрывает
       drawBets();
-      try { const w = await app.backend.casinoPointsBet(stake); pts = Math.max(0, w.balance); }
-      catch (er) { spinning = false; toast((er as Error).message, 'bad'); drawBets(); return; }
+      if (staff) { staffPts -= stake; pts = staffPts; }
+      else {
+        try { const w = await app.backend.casinoPointsBet(stake); pts = Math.max(0, w.balance); }
+        catch (er) { spinning = false; toast((er as Error).message, 'bad'); drawBets(); return; }
+      }
     } else s.coins -= stake;
     drawTop(); drawBets();
     haptic('heavy');
@@ -244,7 +264,7 @@ export function openWheel(app: App, ctx?: PlayCtx) {
       done = true; cancelAnimationFrame(raf);
       angle = aFinal; setRot(angle);
       const win = usePts ? 0 : stake * m;
-      if (usePts) { c.pts = (c.pts ?? 0) + stake; c.ptsSpins = (c.ptsSpins ?? 0) + 1; if (land.tease === 10) c.near++; }
+      if (usePts) { if (!staff) { c.pts = (c.pts ?? 0) + stake; c.ptsSpins = (c.ptsSpins ?? 0) + 1; } if (land.tease === 10) c.near++; }
       else { s.coins += win; rigRecord(c, m, stake, land.tease === 10); }
       history.unshift(m); drawHist();
       spinning = false; finishNow = null;

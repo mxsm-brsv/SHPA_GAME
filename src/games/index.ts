@@ -16,11 +16,12 @@ import { openCategories } from './categories';
 import { openStack } from './stack';
 import { openFlappy } from './flappy';
 import { openWheel } from './wheel';
+import { openCalm } from './calm';
 
 const OPEN: Record<GameId, (app: App, ctx?: PlayCtx) => void> = {
   fever: openFever, ring: openRing, runner: openRunner, stamp: openStamp, alias: openAlias,
   wordle: openWordle, bus: openBus, blocks: openBlocks, merge: openMerge, crossword: openCrossword, categories: openCategories,
-  stack: openStack, flappy: openFlappy, wheel: openWheel,
+  stack: openStack, flappy: openFlappy, wheel: openWheel, calm: openCalm,
 };
 
 export function openGame(app: App, id: GameId, ctx?: PlayCtx) {

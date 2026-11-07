@@ -37,6 +37,7 @@ const P: Record<string, string> = {
   sparkle: '<path d="M12 3v4"/><path d="M12 17v4"/><path d="M3 12h4"/><path d="M17 12h4"/><path d="m6 6 2.5 2.5"/><path d="m15.5 15.5 2.5 2.5"/><path d="m6 18 2.5-2.5"/><path d="m15.5 8.5 2.5-2.5"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 16v-5"/><path d="M12 8h.01"/>',
   arrowUp: '<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>',
+  drop: '<path d="M12 2.8s-6.2 6.8-6.2 11.6a6.2 6.2 0 0 0 12.4 0C18.2 9.6 12 2.8 12 2.8Z"/><path d="M9.2 14.6a2.9 2.9 0 0 0 2.8 2.8"/>',
   play: '<path d="M7 4v16l13-8Z"/>',
   ff: '<path d="M4 5v14l8-7Z"/><path d="M12 5v14l8-7Z"/>',
   book: '<path d="M2 4h7a3 3 0 0 1 3 3v14a2 2 0 0 0-2-2H2Z"/><path d="M22 4h-7a3 3 0 0 0-3 3v14a2 2 0 0 1 2-2h8Z"/>',
