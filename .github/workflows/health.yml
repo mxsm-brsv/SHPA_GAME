@@ -24,8 +24,15 @@ jobs:
       - name: Статус проекта
         run: |
           curl -s -m 20 -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" "https://api.supabase.com/v1/projects/$PROJECT_REF" | python3 -c "import sys,json; d=json.load(sys.stdin); print('status:', d.get('status'), '| region:', d.get('region'))" || true
-          curl -s -m 20 -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" "https://api.supabase.com/v1/projects/$PROJECT_REF/health?services=auth&services=rest&services=db&services=realtime" | python3 -c "import sys,json; d=json.load(sys.stdin); [print(x.get('name'), x.get('status'), x.get('healthy')) for x in (d if isinstance(d,list) else [])]" || true
+          curl -s -m 20 -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" "https://api.supabase.com/v1/projects/$PROJECT_REF/health?services=auth&services=rest&services=db&services=realtime&services=pooler" | python3 -c "import sys,json; d=json.load(sys.stdin); [print(x.get('name'), x.get('status'), x.get('healthy'), str(x.get('error') or x.get('info') or '')[:300]) for x in (d if isinstance(d,list) else [d])]" || true
+          ANON=$(curl -s -m 20 -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" "https://api.supabase.com/v1/projects/$PROJECT_REF/api-keys" | python3 -c "import sys,json; print(next((k['api_key'] for k in json.load(sys.stdin) if k.get('name')=='anon'), ''))")
+          echo "::add-mask::$ANON"
+          source <(grep -E '^[A-Z_]+=' deploy.env)
+          for p in auth/v1/health auth/v1/settings rest/v1/; do printf '%-18s ' "$p"; curl -s -o /dev/null -m 20 -w '%{http_code} %{time_total}s\n' -H "apikey: $ANON" "$SUPABASE_URL/$p" || echo fail; done
+          printf '%-18s ' 'rpc test_mode'; curl -s -m 20 -X POST -H "apikey: $ANON" -H "Authorization: Bearer $ANON" -H 'Content-Type: application/json' "$SUPABASE_URL/rest/v1/rpc/test_mode" -d '{}' -w ' (%{http_code} %{time_total}s)\n' | cut -c1-300 || echo fail
+          printf '%-18s ' 'auth body'; curl -s -m 20 -H "apikey: $ANON" "$SUPABASE_URL/auth/v1/health" | cut -c1-300; echo
+      - name: Подключение к базе
+        run: ./scripts/supabase-dburl.sh "$PROJECT_REF"
       - name: База
         run: |
-          ./scripts/supabase-dburl.sh "$PROJECT_REF"
           psql "$DB_URL" -qtAc "select 'players ' || count(*) from public.players" -c "select 'активных подключений ' || count(*) from pg_stat_activity" -c "select public._db_summary()::text" | cut -c1-600
