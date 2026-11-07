@@ -40,7 +40,7 @@ select pg_temp.ok(array_length(:'ps'::uuid[], 1) = 4, 'есть четыре у�
 select (:'ps'::uuid[])[1] as p1, (:'ps'::uuid[])[2] as p2, (:'ps'::uuid[])[3] as p3, (:'ps'::uuid[])[4] as p4 \gset
 
 \echo '--- в миграции 13 настоящих кодов, тестовых CACHE-… больше нет'
-select pg_temp.ok((select count(*) from print_codes where title not like 'Я — скорость, сегодня%' and title <> 'Я — скорость, завтра' and hash not in (select pg_temp.h('TSTCACHE' || lpad(i::text, 2, '0')) from generate_series(1, 10) i) and hash <> pg_temp.h('TSTGOLD777')) = 13, '13 печатных кодов из миграции');
+select pg_temp.ok((select count(*) from print_codes where kind <> 'egg' and title not like 'Я — скорость, сегодня%' and title <> 'Я — скорость, завтра' and hash not in (select pg_temp.h('TSTCACHE' || lpad(i::text, 2, '0')) from generate_series(1, 10) i) and hash <> pg_temp.h('TSTGOLD777')) = 13, '13 печатных кодов из миграции');
 select pg_temp.ok(not exists (select 1 from cache_codes where code like 'CACHE-%'), 'старые CACHE-01…10 и CACHE-GOLD удалены');
 select pg_temp.ok(not has_function_privilege('authenticated', 'public._redeem_code_base(text)', 'execute'), 'прежнюю функцию напрямую не вызвать');
 

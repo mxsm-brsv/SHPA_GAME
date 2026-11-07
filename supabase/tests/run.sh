@@ -26,3 +26,4 @@ psql -U postgres -d $DB -q -f supabase/tests/v14_test.sql
 psql -U postgres -d $DB -q -f supabase/tests/v15_test.sql
 psql -U postgres -d $DB -q -f supabase/tests/v16_test.sql
 psql -U postgres -d $DB -q -f supabase/tests/v9_vote_test.sql
+psql -U postgres -d $DB -q -f supabase/tests/v17_test.sql
