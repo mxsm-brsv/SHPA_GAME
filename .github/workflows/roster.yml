@@ -1,0 +1,44 @@
+# Изменения списка выезда: файл secure/roster-update.enc зашифрован ключом, который выводится из секрета базы.
+# В репозитории и в логах — только числа, без имён.
+name: Roster update
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'apply — применить secure/roster-update.enc; pubkey — показать открытый ключ'
+        type: choice
+        default: apply
+        options: [apply, pubkey]
+
+jobs:
+  roster:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Открытый ключ
+        if: inputs.mode == 'pubkey'
+        run: node scripts/roster-secure.mjs pubkey
+      - name: Настройки из deploy.env
+        if: inputs.mode == 'apply'
+        run: |
+          source <(grep -E '^[A-Z_]+=' deploy.env)
+          REF=$(echo "${SUPABASE_URL:-}" | sed -nE 's#^https://([a-z0-9]+)\.supabase\.co/?$#\1#p')
+          echo "PROJECT_REF=$REF" >> "$GITHUB_ENV"
+      - name: Подключение к базе
+        if: inputs.mode == 'apply'
+        run: ./scripts/supabase-dburl.sh "$PROJECT_REF"
+      - name: Применить изменения списка (в логе только числа)
+        if: inputs.mode == 'apply'
+        run: |
+          node scripts/roster-secure.mjs sql secure/roster-update.enc > "$RUNNER_TEMP/r.sql"
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -qtA -f "$RUNNER_TEMP/r.sql"
+          rm -f "$RUNNER_TEMP/r.sql"
+      - name: Сводка базы
+        if: inputs.mode == 'apply'
+        run: psql "$DB_URL" -qtAc "select public._db_summary()"
