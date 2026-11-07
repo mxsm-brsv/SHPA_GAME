@@ -124,6 +124,8 @@ export interface Backend {
   staffQuestionReview(id: string, ok: boolean): Promise<void>;
   staffFindPlayers(q: string): Promise<PlayerRef[]>;
   staffGrant(playerId: string, task: string, amount: number, note?: string): Promise<string>;
+  /** Всем участникам выбранных ПБ (кто уже вошёл в игру). */
+  staffGrantPb(factions: string[], amount: number, task: string, note?: string): Promise<{ players: number; skipped: number; granted: number }>;
   staffForceRound(): Promise<void>;
   staffStartEvent(id: string): Promise<void>;
   staffMerchSave(item: Partial<MerchItem> & { name: string }): Promise<void>;

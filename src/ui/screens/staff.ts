@@ -1,6 +1,6 @@
 // Панель организатора: QR-отметка, проверка заданий и вопросов, начисления, мерч и выдача, эфир, список выезда, карта, настройки.
 import { TASKS, taskById } from '../../config/tasks';
-import { FACTIONS, factionById } from '../../config/factions';
+import { FACTIONS, PLAYABLE_FACTIONS, factionById } from '../../config/factions';
 import { MAP_EVENTS } from '../../config/map';
 import { gameById } from '../../config/minigames';
 import { DEFAULT_AUTO, merchPrice, type MerchItem, type MerchOrder } from '../../config/merch';
@@ -136,6 +136,41 @@ export function openStaff(app: App) {
       <div class="row" style="gap:8px"><button class="btn btn-gold grow" data-act="grant">${icon('plus', 16)} Начислить</button>
         <button class="btn btn-red" data-act="penalty">${icon('minus', 16)} Снять</button></div>
       <div class="small muted">«Снять» убирает столько баллов (не ниже нуля) — за нарушение правил или ошибочное начисление. Причину лучше написать.</div></div>`;
+    body.insertAdjacentHTML('beforeend', `<div class="card col" style="gap:8px;margin-top:10px"><b>Всему ПБ сразу</b>
+      <div class="small muted">Когда не успеваете отметить по QR: баллы получат все участники выбранных ПБ, кто уже вошёл в игру. Лимиты заданий соблюдаются, каждому придёт уведомление.</div>
+      <div class="row" style="gap:6px;flex-wrap:wrap">${PLAYABLE_FACTIONS.map((f) => `<button class="btn btn-sm btn-ghost" data-pb="${f.id}" style="border-left:4px solid ${f.color}">${esc(f.short)}</button>`).join('')}
+        <button class="btn btn-sm btn-ghost" data-pb="*">Все ПБ</button></div>
+      <select class="input-ans" data-mtask>${hostTasks.map((t) => `<option value="${t.id}" data-def="${t.amount}">${esc(t.when)} — ${esc(t.title)} (${esc(t.rating)})</option>`).join('')}<option value="bonus" data-def="10" selected>Другое (бонус от организаторов)</option></select>
+      <input class="input-ans" type="number" inputmode="numeric" min="1" max="500" data-mamount value="20" placeholder="Сколько каждому">
+      <input class="input-ans" data-mnote maxlength="200" placeholder="За что — увидят участники">
+      <button class="btn btn-gold btn-block" data-act="grantpb">${icon('plus', 16)} Начислить выбранным ПБ</button></div>`);
+    const pbs = new Set<string>();
+    const pbBtns = Array.from(body.querySelectorAll<HTMLButtonElement>('[data-pb]'));
+    const paintPb = () => pbBtns.forEach((b) => { const on = b.dataset.pb === '*' ? pbs.size === PLAYABLE_FACTIONS.length : pbs.has(b.dataset.pb!); b.classList.toggle('btn-gold', on); b.classList.toggle('btn-ghost', !on); });
+    pbBtns.forEach((b) => b.addEventListener('click', () => {
+      const id = b.dataset.pb!;
+      if (id === '*') { if (pbs.size === PLAYABLE_FACTIONS.length) pbs.clear(); else PLAYABLE_FACTIONS.forEach((f) => pbs.add(f.id)); }
+      else if (pbs.has(id)) pbs.delete(id); else pbs.add(id);
+      haptic(); paintPb();
+    }));
+    const msel = $(body, '[data-mtask]') as HTMLSelectElement;
+    msel.addEventListener('change', () => { ($(body, '[data-mamount]') as HTMLInputElement).value = msel.selectedOptions[0].dataset.def ?? '10'; });
+    ($(body, '[data-act="grantpb"]') as HTMLButtonElement).addEventListener('click', async (e) => {
+      const b = e.currentTarget as HTMLButtonElement;
+      if (!pbs.size) { toast('Выбери ПБ', 'bad'); return; }
+      const amt = Math.round(Number(($(body, '[data-mamount]') as HTMLInputElement).value) || 0);
+      if (amt < 1 || amt > 500) { toast('Сумма — от 1 до 500 баллов', 'bad'); return; }
+      const names = pbs.size === PLAYABLE_FACTIONS.length ? 'всем ПБ' : [...pbs].map((id) => factionById(id as never)?.short ?? id).join(', ');
+      if (!confirmTap(b, `Точно? ${names}: по +${amt} каждому`)) return;
+      b.disabled = true;
+      try {
+        const r = await app.backend.staffGrantPb([...pbs], amt, msel.value, ($(body, '[data-mnote]') as HTMLInputElement).value.trim());
+        toast(r.players ? `+${amt} получили ${r.players} чел. (${names})${r.skipped ? `; ${r.skipped} — уже лимит задания` : ''}` : `Никто не получил: ${r.skipped ? 'у всех лимит задания' : 'из этих ПБ ещё никто не вошёл в игру'}`, r.players ? 'ok' : 'bad');
+        haptic(r.players ? 'ok' : 'bad');
+        if (r.players) { pbs.clear(); paintPb(); }
+      } catch (err) { toast((err as Error).message, 'bad'); haptic('bad'); }
+      b.disabled = false;
+    });
     const q = $(body, '[data-q]') as HTMLInputElement;
     const sel = $(body, '[data-task]') as HTMLSelectElement;
     // поле суммы — отдельный атрибут: у <option> раньше был тот же data-amt, и начислялась сумма по умолчанию, а не введённая

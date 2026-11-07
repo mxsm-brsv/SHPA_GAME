@@ -834,6 +834,11 @@ export class DemoBackend implements Backend {
     BOTS.forEach((b) => rows.push({ id: `bot${b.i}`, name: b.name, faction: b.faction, rating: this.botRating(b) }));
     return rows.filter((r) => r.name.toLowerCase().includes(q.toLowerCase()));
   }
+  async staffGrantPb(factions: string[], amount: number) {
+    const s = this.state;
+    if (s && s.faction && factions.includes(s.faction)) { s.rating += amount; return { players: 1, skipped: 0, granted: amount }; }
+    return { players: 0, skipped: 0, granted: 0 };
+  }
   async staffGrant(playerId: string, task: string, amount: number, note?: string) {
     const s = this.state;
     if (playerId === 'me' && s) {

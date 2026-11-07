@@ -342,6 +342,9 @@ export class OnlineBackend implements Backend {
   async staffTeam() { return (await this.rpc<TeamMember[]>('staff_team').catch(() => [])) ?? []; }
   async staffSetDuty(zone: DutyZone, note: string) { await this.rpc('staff_set_duty', { p_zone: zone, p_note: note }); }
   async staffFindPlayers(q: string) { return (await this.rpc<PlayerRef[]>('staff_find_players', { p_q: q }).catch(() => [])) ?? []; }
+  async staffGrantPb(factions: string[], amount: number, task: string, note?: string) {
+    return this.rpc<{ players: number; skipped: number; granted: number }>('staff_grant_pb', { p_factions: factions, p_amount: amount, p_task: task, p_note: note ?? null });
+  }
   async staffGrant(playerId: string, task: string, amount: number, note?: string) {
     const r = await this.rpc<{ granted: number; rating?: number }>('staff_grant', { p_player: playerId, p_amount: amount, p_task: task, p_note: note || null });
     const g = r?.granted ?? amount;
