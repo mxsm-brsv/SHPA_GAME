@@ -15,7 +15,12 @@ jobs:
           source <(grep -E '^[A-Z_]+=' deploy.env)
           REF=$(echo "$SUPABASE_URL" | sed -nE 's#^https://([a-z0-9]+)\.supabase\.co/?$#\1#p')
           H="Authorization: Bearer $SUPABASE_ACCESS_TOKEN"
-          echo "restart: $(curl -s -m 60 -o /dev/null -w '%{http_code}' -X POST -H "$H" "https://api.supabase.com/v1/projects/$REF/restart")"
+          set +e
+          echo "restart: $(curl -s -m 60 -w ' (%{http_code})' -X POST -H "$H" -H 'Content-Type: application/json' "https://api.supabase.com/v1/projects/$REF/restart" -d '{}' | cut -c1-300)"
+          SRK=$(curl -s -m 20 -H "$H" "https://api.supabase.com/v1/projects/$REF/api-keys" | python3 -c "import sys,json; print(next((k['api_key'] for k in json.load(sys.stdin) if k.get('name')=='service_role'), ''))")
+          echo "::add-mask::$SRK"
+          curl -s -m 40 -u "service_role:$SRK" "https://$REF.supabase.co/customer/v1/privileged/metrics" > /tmp/m.txt; echo "metrics bytes: $(wc -c < /tmp/m.txt)"
+          grep -E '^(node_load1 |node_load5 |node_load15 |node_memory_MemTotal_bytes|node_memory_MemAvailable_bytes|node_memory_SwapTotal_bytes|node_memory_SwapFree_bytes|node_cpu_seconds_total\{cpu="0",mode="(idle|iowait|steal|user|system)"\})' /tmp/m.txt | head -20
           ANON=$(curl -s -m 20 -H "$H" "https://api.supabase.com/v1/projects/$REF/api-keys" | python3 -c "import sys,json; print(next((k['api_key'] for k in json.load(sys.stdin) if k.get('name')=='anon'), ''))")
           echo "::add-mask::$ANON"
           for i in $(seq 1 40); do

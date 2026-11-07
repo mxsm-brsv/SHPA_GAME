@@ -61,6 +61,8 @@ export interface GameConfig {
 
 export interface Backend {
   mode: 'demo' | 'online';
+  /** true, пока сервер не отвечает: фоновые опросы пропускаем */
+  readonly cooling?: boolean;
   staff: boolean;
   admin: boolean;
   /** Продолжить сессию (Telegram или сохранённый вход). needLogin — нужен ввод ФИО. */

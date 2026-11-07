@@ -64,6 +64,8 @@ export class OnlineBackend implements Backend {
   constructor(url: string, key: string) { this.sb = new Sb(url, key); }
 
   private rpc<T = unknown>(fn: string, args: Record<string, unknown> = {}) { return this.sb.rpc<T>(fn, args); }
+  /** Сервер перегружен — фоновые опросы ждут. */
+  get cooling() { return this.sb.cooling; }
 
   private async loadMe(tgName?: string): Promise<LoginResult> {
     const me = await this.rpc<MeRow>('me').catch((e: Error) => ({ error: e.message }) as { error: string });

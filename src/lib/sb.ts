@@ -15,6 +15,15 @@ export class SbError extends Error { constructor(message: string, public status 
 export class Sb {
   session: Session | null = null;
   private refreshing: Promise<void> | null = null;
+  /** Сервер не отвечает — фоновые опросы молчат до этого момента (растущая пауза со случайным разбросом). */
+  private coolUntil = 0;
+  private fails = 0;
+  get cooling() { return Date.now() < this.coolUntil; }
+  private trip() {
+    this.fails++;
+    const base = Math.min(120_000, 10_000 * 2 ** Math.min(this.fails - 1, 4));
+    this.coolUntil = Date.now() + base * (0.6 + Math.random() * 0.8);
+  }
 
   constructor(public url: string, public key: string) {
     const raw = lsGet(LS);
@@ -32,11 +41,19 @@ export class Sb {
     if (!this.session) return;
     if (!this.refreshing) {
       this.refreshing = (async () => {
-        const r = await fetch(`${this.url}/auth/v1/token?grant_type=refresh_token`, {
-          method: 'POST', headers: { apikey: this.key, 'content-type': 'application/json' },
-          body: JSON.stringify({ refresh_token: this.session!.refresh_token }),
-        });
-        if (!r.ok) { this.signOut(); throw new SbError('Сессия истекла — войди заново', 401); }
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), 20000);
+        let r: Response;
+        try {
+          r = await fetch(`${this.url}/auth/v1/token?grant_type=refresh_token`, {
+            method: 'POST', headers: { apikey: this.key, 'content-type': 'application/json' },
+            body: JSON.stringify({ refresh_token: this.session!.refresh_token }), signal: ctl.signal,
+          });
+        } catch { this.trip(); throw new SbError('Нет связи с сервером', 0); }
+        finally { clearTimeout(timer); }
+        // выходим из аккаунта, только если сервер точно сказал «токен недействителен»; перегрузка — не повод разлогинить всех
+        if (r.status === 400 || r.status === 401 || r.status === 403) { this.signOut(); throw new SbError('Сессия истекла — войди заново', 401); }
+        if (!r.ok) { this.trip(); throw new SbError('Нет связи с сервером', r.status); }
         const j = await r.json();
         this.setSession(j.access_token, j.refresh_token);
       })().finally(() => { this.refreshing = null; });
@@ -59,8 +76,9 @@ export class Sb {
     const timer = setTimeout(() => ctl.abort(), 25000);
     let r: Response;
     try { r = await fetch(`${this.url}${path}`, { ...init, headers, signal: ctl.signal }); }
-    catch { throw new SbError('Нет связи с сервером', 0); }
+    catch { this.trip(); throw new SbError('Нет связи с сервером', 0); }
     finally { clearTimeout(timer); }
+    if (r.status >= 500) this.trip(); else { this.fails = 0; this.coolUntil = 0; }
     if (r.status === 401 && retry && this.session) { await this.refresh(); return this.req(path, init, false); }
     return r;
   }

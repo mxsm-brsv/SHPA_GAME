@@ -25,10 +25,10 @@ export const SECONDARY: Tab[] = ['squad', 'map', 'games'];
 
 /** Как часто отправлять накопленный вклад в ПБ и сохранять прогресс (мс). Меньше запросов — легче серверу. */
 const FLUSH_MS = 20000;
-const SAVE_MS = 30000;
-const LIVE_MS = 60000;
+const SAVE_MS = 60000;
+const LIVE_MS = 90000;
 /** Уведомления о проверке заданий — чаще эфира, запрос лёгкий. */
-const NOTES_MS = 60000;
+const NOTES_MS = 90000;
 
 export class App {
   state!: GameState;
@@ -101,9 +101,9 @@ export class App {
       window.setInterval(() => this.flush(), FLUSH_MS);
       window.setInterval(() => this.refreshLive(), LIVE_MS);
       window.setInterval(() => this.refreshNotes(), NOTES_MS);
-      window.setInterval(() => this.refreshMode(), 45_000);
+      window.setInterval(() => this.refreshMode(), 60_000);
       // голосование: пока открыто — раз в 10 с, иначе раз в минуту (сервер маленький — бережём его)
-      window.setInterval(() => { this.voteTick++; if ((this.vote?.status === 'open' && this.voteTick % 2 === 0) || this.voteTick % 12 === 0) this.refreshVote(); }, 5000);
+      window.setInterval(() => { this.voteTick++; if ((this.vote?.status === 'open' && this.voteTick % 3 === 0) || this.voteTick % 24 === 0) this.refreshVote(); }, 5000);
       document.addEventListener('visibilitychange', () => { if (document.hidden) { this.flush(); this.saveNow(); } });
       window.addEventListener('pagehide', () => { this.flush(); this.saveNow(); });
     }
@@ -145,7 +145,7 @@ export class App {
 
   /** Режим блока: узнаём у сервера, на паузе ли игры. При смене — перерисовываем экран. */
   async refreshMode(first = false) {
-    if (!this.state || (document.hidden && !first)) return;
+    if (!this.state || (!first && (document.hidden || this.backend.cooling))) return;
     const m = await this.backend.gameMode().catch(() => null);
     if (!m) return;
     const changed = m.lite !== this.lite;
@@ -162,7 +162,7 @@ export class App {
   }
 
   async refreshVote() {
-    if (!this.state || document.hidden) return;
+    if (!this.state || document.hidden || this.backend.cooling) return;
     const v = await this.backend.voteState().catch(() => null);
     if (!v) return;
     const changed = !this.vote || this.vote.status !== v.status || this.vote.current !== v.current || this.vote.reveal !== v.reveal || this.vote.round !== v.round;
@@ -171,14 +171,14 @@ export class App {
   }
 
   async refreshLive() {
-    if (!this.state || document.hidden) return;
+    if (!this.state || document.hidden || this.backend.cooling) return;
     this.live = await this.backend.liveFeed().catch(() => this.live);
     this.root.querySelectorAll<HTMLElement>('[data-live]').forEach((n) => n.dispatchEvent(new CustomEvent('live')));
   }
 
   /** Уведомления «принято / не принято». Новое — всплывает сообщением. */
   async refreshNotes(silent = false) {
-    if (!this.state || (document.hidden && !silent)) return;
+    if (!this.state || (document.hidden && !silent) || this.backend.cooling) return;
     const list = await this.backend.notes(this.state).catch(() => null);
     if (!list) return;
     const fresh = list.filter((n) => !n.read && !this.seenNotes.has(n.id));
@@ -196,7 +196,7 @@ export class App {
   /** Отправляет накопленный вклад в здание ПБ (раз в несколько секунд, пачкой). */
   async flush() {
     const s = this.state;
-    if (!s || this.flushing || s.clicker.pendingXp <= 0 || !s.faction || this.lite) return;
+    if (!s || this.flushing || s.clicker.pendingXp <= 0 || !s.faction || this.lite || this.backend.cooling) return;
     this.flushing = true;
     const xp = s.clicker.pendingXp;
     s.clicker.pendingXp = 0;
@@ -280,7 +280,7 @@ export class App {
     const unread = this.notes.filter((n) => !n.read).length;
     const t = this.navEl.querySelector<HTMLElement>('[data-tab="tasks"] .nbadge');
     if (t) { t.textContent = String(unread); t.classList.toggle('hidden', !unread); }
-    this.cached('lect', 60_000, () => this.backend.lecturesOpen()).then((ls) => {
+    this.cached('lect', 120_000, () => this.backend.lecturesOpen()).then((ls) => {
       const open = ls.filter((l) => !l.mine && !this.state.lectures.includes(l.id)).length;
       const q = this.navEl?.querySelector<HTMLElement>('[data-tab="qr"] .nbadge');
       if (q) { q.textContent = open ? '!' : ''; q.classList.toggle('hidden', !open); }
@@ -297,6 +297,8 @@ export class App {
 
   saveNow() {
     clearTimeout(this.saveTimer);
+    // сервер не отвечает — сохраним позже, прогресс лежит в памяти и в телефоне
+    if (this.backend.cooling) { this.saveTimer = window.setTimeout(() => this.saveNow(), 20000 + Math.random() * 20000); return; }
     this.lastSave = Date.now();
     if (this.state) this.backend.save(this.state).catch(() => {});
   }
