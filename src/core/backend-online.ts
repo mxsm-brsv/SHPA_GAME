@@ -17,7 +17,7 @@ import type { CasinoStats } from './casino';
 import type { Duel, DuelAnswer, DuelList } from './duel';
 import { SKIRMISH_WIN_COINS } from '../config/economy';
 import { fetchLiveJson, parseMerchLines, parseRosterLines } from './backend-demo';
-import type { CodeWord,
+import type { CodeWord, ScanRow,
   Announcement, Backend, ClanView, FactionRow, GameConfig, LeaderRow, LectureSession, LoginParams, LoginResult,
   MySubmission, Note, PlayerRef, QrSessionInput, RosterRow, SharedTest, Submission, SubmitResult, TaskPayload, UserQuestion, Wallet,
   DutyZone, TeamMember,
@@ -311,6 +311,7 @@ export class OnlineBackend implements Backend {
   async staffVoteMembers() { return this.rpc<{ team: string; name: string; people: { id: string | number; name: string }[] }[]>('staff_vote_members'); }
   async staffVoteKick(rosterId: string | number) { return this.rpc<VoteState>('staff_vote_kick', { p_roster: Number(rosterId) }); }
   async staffWords() { return this.rpc<CodeWord[]>('staff_words'); }
+  async staffScanLog(kind?: string) { return (await this.rpc<ScanRow[] | null>('staff_scan_log', { p_kind: kind || null, p_limit: 800 })) ?? []; }
   async staffWordAdd(word: string, points: number, max: number | null, minutes: number | null, gold: boolean) {
     return this.rpc<CodeWord[]>('staff_word_add', { p_word: word, p_points: points, p_max: max, p_minutes: minutes, p_gold: gold });
   }

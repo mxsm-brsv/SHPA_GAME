@@ -19,7 +19,7 @@ import { VOTE_DEFAULT_TITLE, defaultVoteTeams, type VoteAction, type VoteState }
 import type { RaidHit, RaidState } from './raid';
 import type { CasinoStats } from './casino';
 import type { Duel, DuelAnswer, DuelList } from './duel';
-import type { CodeWord,
+import type { CodeWord, ScanRow,
   Announcement, Backend, ClanMember, ClanView, FactionRow, GameConfig, LeaderRow, LectureSession, LoginParams, LoginResult,
   MySubmission, Note, PlayerRef, QrSessionInput, RosterRow, SharedTest, Submission, SubmitResult, TaskPayload, UserQuestion, Wallet,
   DutyZone, TeamMember,
@@ -541,6 +541,7 @@ export class DemoBackend implements Backend {
   private words() { return lsJson<DemoWord[]>(LS_WORDS, []); }
   private wordsOut(list: DemoWord[]) { lsSet(LS_WORDS, JSON.stringify(list)); return list.map(({ norm: _n, who, ...w }) => ({ ...w, found: who.length })); }
   async staffWords() { return this.wordsOut(this.words()); }
+  async staffScanLog(): Promise<ScanRow[]> { return []; }
   async staffWordAdd(word: string, points: number, max: number | null, minutes: number | null, gold: boolean) {
     const text = word.trim(), norm = wordNorm(text), list = this.words();
     if (norm.length < 2) throw new Error('Слово слишком короткое');

@@ -6,7 +6,7 @@ import { gameById } from '../../config/minigames';
 import { DEFAULT_AUTO, merchPrice, type MerchItem, type MerchOrder } from '../../config/merch';
 import { economyPlan } from '../../config/economy-plan';
 import { icon, starSvg } from '../../art/icons';
-import type { Announcement, CodeWord, DutyZone, PlayerRef, RosterRow, Submission, TeamMember, UserQuestion } from '../../core/backend';
+import type { Announcement, CodeWord, DutyZone, PlayerRef, RosterRow, ScanRow, Submission, TeamMember, UserQuestion } from '../../core/backend';
 import { rightAnswerText } from '../../core/questions';
 import { haptic } from '../../core/telegram';
 import { canScanAny, scanAny } from '../../lib/scan';
@@ -19,8 +19,8 @@ import { VOTE_DEFAULT_TITLE, defaultVoteTeams, parseVoteTeams, voteRank, voteSco
 import { drawQrStation } from './qrstation';
 import { STAFF_TOUR, maybeStaffTour, runTour } from '../tour';
 
-type Tab = 'team' | 'qr' | 'mod' | 'grant' | 'words' | 'merch' | 'issue' | 'live' | 'vote' | 'roster' | 'war' | 'set' | 'help';
-const TABS: [Tab, string][] = [['team', 'Команда'], ['qr', 'QR-отметка'], ['mod', 'Проверка'], ['grant', 'Начислить'], ['words', 'Слова'], ['merch', 'Мерч'], ['issue', 'Выдача'], ['live', 'Эфир'], ['vote', 'Голосование'], ['roster', 'Участники'], ['war', 'Карта'], ['set', 'Настройки'], ['help', 'Гайд']];
+type Tab = 'team' | 'qr' | 'scans' | 'mod' | 'grant' | 'words' | 'merch' | 'issue' | 'live' | 'vote' | 'roster' | 'war' | 'set' | 'help';
+const TABS: [Tab, string][] = [['team', 'Команда'], ['qr', 'QR-отметка'], ['scans', 'Кто сканировал'], ['mod', 'Проверка'], ['grant', 'Начислить'], ['words', 'Слова'], ['merch', 'Мерч'], ['issue', 'Выдача'], ['live', 'Эфир'], ['vote', 'Голосование'], ['roster', 'Участники'], ['war', 'Карта'], ['set', 'Настройки'], ['help', 'Гайд']];
 let lastTab: Tab = 'team';
 const ZONES: [DutyZone, string, string][] = [
   ['mod', 'Проверка заданий', 'clipboard'], ['qr', 'QR на блоках', 'qr'], ['merch', 'Мерч и выдача', 'bag'], ['live', 'Эфир и экран', 'chat'],
@@ -433,11 +433,54 @@ export function openStaff(app: App) {
     stopTimer = () => clearInterval(timer);
   };
 
+  // ---------- Кто сканировал ----------
+  let scanKind = '', scanQ = '';
+  const SCAN_KIND: Record<ScanRow['kind'], string> = { lecture: 'Блок', speed: 'Я — скорость', cache: 'Тайник', cache_gold: 'Золотой тайник', egg: 'Презентация', word: 'Слово' };
+  const drawScans = async () => {
+    body.innerHTML = `<div class="card col" style="gap:8px">
+        <div class="row" style="gap:6px;flex-wrap:wrap">${[['', 'Все'], ['lecture', 'Блоки'], ['cache', 'Тайники'], ['speed', 'Скорость'], ['egg', 'Презентации'], ['word', 'Слова']].map(([v, n]) => `<button class="btn btn-sm ${v === scanKind ? 'btn-gold' : 'btn-ghost'}" data-sk="${v}">${n}</button>`).join('')}</div>
+        <input class="input-ans" data-sq placeholder="Фамилия, группа, тайник или название блока" value="${esc(scanQ)}">
+        <div class="small muted" data-ssum>Загрузка…</div></div>
+      <div class="list" data-sl></div>
+      <div class="small muted" style="margin-top:8px">Новые сверху, обновляется сам каждые 8 секунд. Баллы — сколько реально начислено за этот скан; «0» — уже был лимит (например, пасхалок). Организаторские проверки кодов сюда не попадают.</div>`;
+    let rows: ScanRow[] = [];
+    const today = new Date().toDateString();
+    const when = (ms: number) => {
+      const d = new Date(ms);
+      const t = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      return d.toDateString() === today ? t : `${d.getDate()}.${String(d.getMonth() + 1).padStart(2, '0')} ${t.slice(0, 5)}`;
+    };
+    const render = () => {
+      const q = scanQ.trim().toLowerCase();
+      const list = q ? rows.filter((r) => `${r.player} ${r.group ?? ''} ${r.title}`.toLowerCase().includes(q)) : rows;
+      const people = new Set(list.map((r) => r.player)).size;
+      const pts = list.reduce((a, r) => a + r.points, 0);
+      $(body, '[data-ssum]').textContent = `${list.length} ${list.length % 10 === 1 && list.length % 100 !== 11 ? 'скан' : 'сканов'} · ${people} чел. · начислено ${fmt(pts)} баллов`;
+      $(body, '[data-sl]').innerHTML = list.length ? list.slice(0, 400).map((r) => {
+        const f = factionById(r.faction);
+        return `<div class="li"><div class="grow" style="min-width:0"><b>${esc(r.player)}</b> <span class="small muted">${esc(f?.short ?? '')}${r.group ? ` · ${esc(r.group)}` : ''}</span>
+          <div class="small">${SCAN_KIND[r.kind] ?? r.kind} · ${esc(r.title)}</div></div>
+          <div style="text-align:right;flex:none"><b class="${r.points > 0 ? 'gold' : 'muted'}">${r.points > 0 ? `+${r.points}` : '0'}</b><div class="small muted">${when(r.at)}</div></div></div>`;
+      }).join('') : '<div class="li muted small">Пока никто не сканировал</div>';
+    };
+    const load = async () => { rows = await app.backend.staffScanLog(scanKind || undefined).catch(() => rows); if (body.isConnected && tab === 'scans') render(); };
+    body.querySelectorAll<HTMLButtonElement>('[data-sk]').forEach((b) => b.addEventListener('click', () => {
+      scanKind = b.dataset.sk ?? '';
+      body.querySelectorAll<HTMLButtonElement>('[data-sk]').forEach((x) => { x.classList.toggle('btn-gold', x === b); x.classList.toggle('btn-ghost', x !== b); });
+      $(body, '[data-ssum]').textContent = 'Загрузка…';
+      void load();
+    }));
+    ($(body, '[data-sq]') as HTMLInputElement).addEventListener('input', (e) => { scanQ = (e.target as HTMLInputElement).value; render(); });
+    await load();
+    const timer = window.setInterval(() => { if (body.isConnected && tab === 'scans') void load(); }, 8000);
+    stopTimer = () => clearInterval(timer);
+  };
+
   const draw = () => {
     stopTimer(); stopTimer = () => {};
     lastTab = tab;
     node.querySelectorAll<HTMLElement>('.chip').forEach((c) => c.classList.toggle('on', c.dataset.v === tab));
-    ({ team: drawTeam, help: drawHelp, qr: () => drawQrStation(app, body, draw), mod: drawMod, grant: drawGrant, words: drawWords, merch: drawMerch, issue: drawIssue, live: drawLive, vote: drawVote, roster: drawRoster, war: drawWar, set: drawSet })[tab]();
+    ({ team: drawTeam, help: drawHelp, scans: drawScans, qr: () => drawQrStation(app, body, draw), mod: drawMod, grant: drawGrant, words: drawWords, merch: drawMerch, issue: drawIssue, live: drawLive, vote: drawVote, roster: drawRoster, war: drawWar, set: drawSet })[tab]();
   };
 
   /** Начислить (+) или снять (−) ровно столько, сколько введено в поле. */

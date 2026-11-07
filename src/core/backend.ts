@@ -42,6 +42,7 @@ export interface LectureSession {
   openedByName?: string; existing?: boolean;
 }
 export interface Announcement { id: string; text: string; kind: 'info' | 'alert' | 'win'; at: number; until?: number | null; author?: string; source?: 'staff' | 'claude' }
+export interface ScanRow { at: number; player: string; group?: string | null; faction: FactionId; kind: 'lecture' | 'speed' | 'cache' | 'cache_gold' | 'egg' | 'word'; title: string; points: number }
 export interface RosterRow { id: string; fio: string; faction: FactionId; group: string; role: Role; bound: boolean; tg?: boolean }
 /** Баллы на мерч: заработано (рейтинг) − потрачено (заказы и проигрыш в колесе). casino — сколько из потраченного ушло в колесо. */
 export interface Wallet { earned: number; spent: number; balance: number; casino?: number }
@@ -164,6 +165,8 @@ export interface Backend {
   staffVoteKick(rosterId: string | number): Promise<VoteState>;
   /** Кодовые слова: список, добавить в моменте (баллы, первым N, на M минут, золотая), включить/выключить, удалить */
   staffWords(): Promise<CodeWord[]>;
+  /** Журнал сканов: QR на блоках, тайники, «Я — скорость», QR презентаций, кодовые слова. Новые сверху. */
+  staffScanLog(kind?: string): Promise<ScanRow[]>;
   staffWordAdd(word: string, points: number, max: number | null, minutes: number | null, gold: boolean): Promise<CodeWord[]>;
   staffWordSet(id: string, active: boolean): Promise<CodeWord[]>;
   staffWordDelete(id: string): Promise<CodeWord[]>;
