@@ -975,3 +975,4 @@ input[type="range"] { width: 100%; accent-color: var(--gold); }
 @keyframes goalShine { to { background-position: -200% 0; } }
 .goal-top { display: flex; flex-direction: column; gap: 5px; padding: 8px 10px; border-radius: 12px; background: #00000033; }
 .goal-place { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 800; color: #1a1030; flex: none; }
+.mgrid [hidden], [data-item] [hidden] { display: none !important; }

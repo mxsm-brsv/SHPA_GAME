@@ -249,13 +249,15 @@ export function openStaff(app: App) {
           <div class="row" style="gap:6px"><input class="input-ans" style="width:58px;text-align:center;flex:none" data-f="emoji" value="${esc(it.emoji)}" maxlength="8" aria-label="Эмодзи">
             <input class="input-ans grow" data-f="name" value="${esc(it.name)}" maxlength="60" placeholder="Название"></div>
           <input class="input-ans" data-f="text" value="${esc(it.text ?? '')}" maxlength="200" placeholder="Описание (видят участники)">
-          <label class="row small" style="gap:6px"><input type="checkbox" data-f="unlimited" ${it.unlimited ? 'checked' : ''}> Без ограничений по количеству — цена растёт с каждой покупкой</label>
+          <div class="small"><b>Как продаётся</b></div>
+          <div class="calm-seg" data-mmode="${it.unlimited ? 'unl' : 'lim'}" style="align-self:flex-start"><button type="button" class="${it.unlimited ? '' : 'on'}" data-mm="lim">По количеству</button><button type="button" class="${it.unlimited ? 'on' : ''}" data-mm="unl">Без лимита, цена растёт</button></div>
+          <div class="small muted" data-mmhint>${it.unlimited ? `Количество не ограничено. Купили ${fmt(it.sold ?? 0)}. Каждая покупка поднимает цену на «шаг».` : 'Ограниченное количество: кончились штуки — лот «закончился».'}</div>
           <div class="small muted">Для кого лот (ничего не выбрано — для всех ПБ):</div>
           <div class="row" style="gap:5px;flex-wrap:wrap">${pbChips(it.factions ?? null)}</div>
-          ${it.unlimited ? `<div class="small gold">Купили ${fmt(it.sold ?? 0)}. «Цена» — стартовая, «Шаг» — на сколько дорожает после каждой покупки. «Осталось» не важно.</div>` : ''}
           <div class="mgrid">
-            ${it.unlimited ? `<label>Шаг цены<input class="input-ans" type="number" data-f="step" value="${it.step ?? 1}" min="0" max="1000"></label>` : `<label>Осталось<input class="input-ans" type="number" data-f="stock" value="${it.stock}" min="0"></label>`}
-            <label>${it.unlimited ? 'Стартовая цена' : 'Цена'}<input class="input-ans" type="number" data-f="price" value="${it.price}" min="1"></label>
+            <label data-for="lim" ${it.unlimited ? 'hidden' : ''}>Осталось, шт.<input class="input-ans" type="number" data-f="stock" value="${it.unlimited ? 1 : it.stock}" min="0"></label>
+            <label data-for="unl" ${it.unlimited ? '' : 'hidden'}>Шаг цены, +баллов<input class="input-ans" type="number" data-f="step" value="${it.step || 1}" min="0" max="1000"></label>
+            <label><span data-plabel>${it.unlimited ? 'Стартовая цена' : 'Цена'}</span><input class="input-ans" type="number" data-f="price" value="${it.price}" min="1"></label>
             <label>Скидка %<input class="input-ans" type="number" data-f="discount" value="${it.discount}" min="0" max="90"></label>
             <label>В одни руки<input class="input-ans" type="number" data-f="perPerson" value="${it.perPerson}" min="1"></label>
           </div>
@@ -276,6 +278,18 @@ export function openStaff(app: App) {
         <div class="small muted">По строке на товар: <b>Название; количество; цена</b>. Можно с эмодзи в начале и описанием четвёртым полем. Из Excel — просто вставь столбцы. Совпадение по названию обновляет количество и цену.</div>
         <textarea class="textarea" data-imp placeholder="🏷️ Ремувки; 3; 150&#10;Шоппер ППО; 5; 300; сумка с логотипом"></textarea>
         <button class="btn btn-gold btn-block" data-act="mimp">Загрузить</button></div>`;
+    body.querySelectorAll<HTMLButtonElement>('[data-mm]').forEach((b) => b.addEventListener('click', () => {
+      const card = b.closest<HTMLElement>('[data-item]')!;
+      const seg = card.querySelector<HTMLElement>('[data-mmode]')!;
+      const unl = b.dataset.mm === 'unl';
+      seg.dataset.mmode = unl ? 'unl' : 'lim';
+      seg.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b));
+      card.querySelector<HTMLElement>('[data-for="lim"]')!.hidden = unl;
+      card.querySelector<HTMLElement>('[data-for="unl"]')!.hidden = !unl;
+      card.querySelector<HTMLElement>('[data-plabel]')!.textContent = unl ? 'Стартовая цена' : 'Цена';
+      card.querySelector<HTMLElement>('[data-mmhint]')!.textContent = unl ? 'Количество не ограничено. Каждая покупка поднимает цену на «шаг». Не забудь «Сохранить».' : 'Ограниченное количество: впиши, сколько штук. Не забудь «Сохранить».';
+      haptic();
+    }));
     body.querySelectorAll<HTMLButtonElement>('[data-pbc]').forEach((b) => b.addEventListener('click', () => { b.classList.toggle('btn-gold'); b.classList.toggle('btn-ghost'); haptic(); }));
     body.querySelector('[data-mtool="refresh"]')?.addEventListener('click', () => { haptic(); drawMerch(); });
     body.querySelectorAll<HTMLButtonElement>('[data-mpct]').forEach((b) => b.addEventListener('click', async () => {
@@ -677,13 +691,13 @@ export function openStaff(app: App) {
       const str = (f: string) => ((card.querySelector(`[data-f="${f}"]`) as HTMLInputElement | null)?.value ?? '').trim();
       const name = str('name');
       if (!name) { toast('Название не может быть пустым', 'bad'); return; }
-      const unlimited = (card.querySelector('[data-f="unlimited"]') as HTMLInputElement).checked;
+      const unlimited = (card.querySelector<HTMLElement>('[data-mmode]')?.dataset.mmode ?? (it.unlimited ? 'unl' : 'lim')) === 'unl';
       const factions = Array.from(card.querySelectorAll<HTMLElement>('[data-pbc].btn-gold')).map((x) => x.dataset.pbc!);
       const stockIn = card.querySelector('[data-f="stock"]') as HTMLInputElement | null;
       const stepIn = card.querySelector('[data-f="step"]') as HTMLInputElement | null;
       const patch: Partial<MerchItem> & { name: string } = { id: it.id, name, emoji: str('emoji'), text: str('text'), unlimited, factions,
-        step: unlimited ? Math.max(0, Math.round(Number(stepIn?.value ?? it.step ?? 1)) || (it.unlimited ? 0 : 1)) : 0,
-        stock: Math.max(0, stockIn ? Number(stockIn.value) : it.stock), price: Math.max(1, v('price')), discount: Math.max(0, Math.min(90, v('discount'))), perPerson: Math.max(1, v('perPerson')), auto: auto ? it.auto ?? DEFAULT_AUTO : null, tiers: readTiers(card) };
+        step: unlimited ? Math.max(0, Math.round(Number(stepIn?.value ?? 1))) : 0,
+        stock: Math.max(0, Math.round(Number(stockIn?.value ?? it.stock)) || 0), price: Math.max(1, v('price')), discount: Math.max(0, Math.min(90, v('discount'))), perPerson: Math.max(1, v('perPerson')), auto: auto ? it.auto ?? DEFAULT_AUTO : null, tiers: readTiers(card) };
       try { await app.backend.staffMerchSave(patch); toast(`«${name}» сохранён`, 'ok'); drawMerch(); } catch (e) { toast((e as Error).message, 'bad'); }
     },
     mstep: async (t) => {
