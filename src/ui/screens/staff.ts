@@ -278,8 +278,8 @@ export function openStaff(app: App) {
       <div class="small muted">Всего ${rows.length}: участников ${rows.filter((r) => r.role === 'participant').length}, состава ${rows.filter((r) => r.role !== 'participant').length}. В игре — ${rows.filter((r) => r.bound).length}.</div>
       ${by.map(({ f, rows: rs }) => `<div class="card col" style="gap:4px"><div class="row"><b class="grow">${f.short}</b><span class="small muted">${rs.filter((r) => r.bound).length}/${rs.length} в игре</span></div>
         ${rs.map((r) => `<div class="row small" style="gap:6px"><span class="grow">${esc(r.fio)} <span class="muted">${esc(r.group)}${r.role !== 'participant' ? ` · ${r.role === 'admin' ? 'админ' : 'орг.'}` : ''}</span></span>
-          ${r.bound ? `<span class="tag" style="background:#2fbf7133">${r.tg ? 'Telegram' : 'браузер'}</span><button class="btn btn-ghost btn-sm" data-act="rreset" data-id="${r.id}" title="Сбросить привязку">Сброс</button>` : '<span class="tag">не входил</span>'}</div>`).join('')}</div>`).join('')}
-      <div class="small muted">«Сброс» нужен, если человек сменил телефон или кто-то вошёл под чужим ФИО: привязка снимается, прогресс остаётся, войти можно заново по ФИО и группе.</div>`;
+          ${r.bound ? `<span class="tag" style="background:#2fbf7133">${r.tg ? 'Telegram' : 'браузер'}</span><button class="btn btn-ghost btn-sm" data-act="rreset" data-id="${r.id}" title="Сбросить привязку">Сброс</button>` : `<span class="tag">не входил</span>${app.backend.admin ? `<button class="btn btn-ghost btn-sm" data-act="rremove" data-id="${r.id}" title="Убрать из списка">Убрать</button>` : ''}`}</div>`).join('')}</div>`).join('')}
+      <div class="small muted">«Сброс» нужен, если человек сменил телефон или кто-то вошёл под чужим ФИО: привязка снимается, прогресс остаётся, войти можно заново по ФИО и группе. «Убрать» — для тех, кто не едет (только админ, только пока не входил).</div>`;
   };
 
   // ---------- Карта ----------
@@ -549,6 +549,7 @@ export function openStaff(app: App) {
     },
     ldel: async (t) => { await app.backend.staffAnnounceDelete(t.dataset.id!); await app.refreshLive(); drawLive(); },
     rimp: async () => { const msg = await app.backend.staffRosterImport(($(body, '[data-rimp]') as HTMLTextAreaElement).value).catch((e: Error) => e.message); toast(msg, 'ok'); drawRoster(); },
+    rremove: async (t) => { if (!confirmTap(t, 'Точно?')) return; const msg = await app.backend.staffRosterRemove(t.dataset.id!).catch((e: Error) => e.message); toast(msg, 'info'); drawRoster(); },
     rreset: async (t) => { const msg = await app.backend.staffRosterReset(t.dataset.id!).catch((e: Error) => e.message); toast(msg, 'info'); drawRoster(); },
     rlevel: async (t) => { await app.backend.staffRaidSet(Number(t.dataset.hp)).catch((e: Error) => toast(e.message, 'bad')); toast('Сложность сохранена', 'ok'); drawWar(); },
     'rreset-raid': async (t) => { if (!confirmTap(t, 'Точно сбросить?')) return; await app.backend.staffRaidReset().catch((e: Error) => toast(e.message, 'bad')); toast('Штурм профкома сброшен', 'info'); drawWar(); },

@@ -48,3 +48,19 @@ select pg_temp.ok(redeem_code('TSTEGG0001')->>'message' like 'Код верны�
 delete from print_codes where n in (98, 99) and kind = 'egg';
 select _reset_all();
 select pg_temp.ok((select count(*) from print_codes where kind = 'egg') = 11 and not exists (select 1 from print_claims), 'сброс: QR остаются, сканы чистятся');
+
+\echo '--- v18: убрать из списка того, кто не едет'
+set test.uid = :'p1';
+select pg_temp.fails($q$select staff_roster_remove('1')$q$, 'Убирать из списка могут только админы%', 'участник не убирает');
+do $$ declare a uuid; r bigint; u uuid; begin
+  if not exists (select 1 from players where role = 'admin' and roster_id is not null) then
+    select id into r from roster where role = 'admin' and player_id is null order by id limit 1;
+    insert into auth.users default values returning id into u; perform roster_attach(r, u);
+  end if;
+end $$;
+select id as admin_id from players where role = 'admin' and roster_id is not null order by id limit 1 \gset
+insert into roster (fio, fio_norm, grp, grp_norm, faction, role) values ('Тестов Тест Тестович', norm_fio('Тестов Тест Тестович'), 'А-01-25', norm_group('А-01-25'), 'ivti', 'participant');
+select id as rid from roster where fio_norm = norm_fio('Тестов Тест Тестович') \gset
+set test.uid = :'admin_id';
+select pg_temp.ok(staff_roster_remove(:'rid') like 'Убран из списка: Тестов%', 'админ убирает строку без входа');
+select pg_temp.ok(not exists (select 1 from roster where id = :rid), 'строки больше нет');

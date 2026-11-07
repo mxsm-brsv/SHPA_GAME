@@ -140,6 +140,7 @@ export interface Backend {
   staffRoster(): Promise<RosterRow[]>;
   staffRosterImport(text: string): Promise<string>;
   staffRosterReset(id: string): Promise<string>;
+  staffRosterRemove(id: string): Promise<string>;
   staffSetSetting(key: 'shop_open' | 'require_group' | 'casino_reveal', value: boolean): Promise<void>;
   /** Общий итог колеса профкома (после разоблачения — всем, до него — организаторам). */
   casinoStats(): Promise<CasinoStats | null>;
