@@ -350,6 +350,7 @@ export class OnlineBackend implements Backend {
   async staffForceRound() { await this.rpc('staff_force_round'); }
   async staffStartEvent(id: string) { await this.rpc('staff_start_event', { p_id: id }); }
   async staffMerchSave(item: Partial<MerchItem> & { name: string }) { await this.rpc('staff_merch_save', { p_item: item }); }
+  async staffMerchAll() { return (await this.rpc<MerchItem[] | null>('staff_merch_all').catch(() => null)) ?? (await this.merchList()); }
   async staffMerchImport(text: string) {
     const rows = parseMerchLines(text);
     if (!rows.length) return 'Не нашли строк вида «Название; количество; цена»';

@@ -127,6 +127,8 @@ export interface Backend {
   staffForceRound(): Promise<void>;
   staffStartEvent(id: string): Promise<void>;
   staffMerchSave(item: Partial<MerchItem> & { name: string }): Promise<void>;
+  /** Все товары, включая скрытые (для панели). */
+  staffMerchAll(): Promise<MerchItem[]>;
   staffMerchImport(text: string): Promise<string>;
   staffMerchDelete(id: string): Promise<void>;
   staffOrders(): Promise<MerchOrder[]>;

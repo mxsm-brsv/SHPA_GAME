@@ -857,6 +857,7 @@ export class DemoBackend implements Backend {
   }
   async staffStartEvent(id: string) { forceEvent(id); }
 
+  async staffMerchAll() { return this.items().sort((a, b) => Number(b.active) - Number(a.active) || a.price - b.price); }
   async staffMerchSave(item: Partial<MerchItem> & { name: string }) {
     const items = this.items();
     const ex = item.id ? items.find((x) => x.id === item.id) : undefined;
