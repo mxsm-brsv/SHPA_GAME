@@ -31,7 +31,7 @@ const LS_SESSION = 'pbgame.session';
 const LS_WORLD = 'pbgame.world';
 const LS_SUBS = 'pbgame.subs';
 const LS_CLAN = 'pbgame.clan';
-const LS_MERCH = 'pbgame.merch7';
+const LS_MERCH = 'pbgame.merch8';
 const LS_CASINO_PTS = 'pbgame.casinoPts';
 const LS_ORDERS = 'pbgame.orders';
 const LS_LECT = 'pbgame.lectures';
@@ -515,13 +515,13 @@ export class DemoBackend implements Backend {
     const items = this.items();
     const it = items.find((x) => x.id === itemId && x.active);
     if (!it) return { ok: false, message: 'Товар не найден' };
-    if (it.stock <= 0) return { ok: false, message: 'Закончилось' };
+    if (!it.unlimited && it.stock <= 0) return { ok: false, message: 'Закончилось' };
     const mine = this.orders().filter((o) => o.itemId === itemId && o.status !== 'cancelled').length;
     if (mine >= it.perPerson) return { ok: false, message: `В одни руки — ${it.perPerson} шт.` };
     const price = merchPrice(it).price;
     const w = await this.wallet(s);
     if (w.balance < price) return { ok: false, message: `Не хватает ${price - w.balance} баллов` };
-    it.stock -= 1;
+    if (it.unlimited) it.sold = (it.sold ?? 0) + 1; else it.stock -= 1;
     it.lastSaleAt = Date.now();
     lsSet(LS_MERCH, JSON.stringify(items));
     const order: MerchOrder = { id: randomCode(6), itemId, itemName: it.name, emoji: it.emoji, price, at: Date.now(), status: 'reserved', player: s.username, playerId: 'me', faction: s.faction };
@@ -887,7 +887,7 @@ export class DemoBackend implements Backend {
     if (status === 'cancelled') {
       const items = this.items();
       const it = items.find((x) => x.id === o.itemId);
-      if (it) { it.stock += 1; lsSet(LS_MERCH, JSON.stringify(items)); }
+      if (it) { if (it.unlimited) it.sold = Math.max(0, (it.sold ?? 0) - 1); else it.stock += 1; lsSet(LS_MERCH, JSON.stringify(items)); }
     }
     lsSet(LS_ORDERS, JSON.stringify(orders));
   }

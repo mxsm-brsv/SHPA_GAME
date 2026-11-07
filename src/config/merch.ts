@@ -16,6 +16,9 @@ export interface MerchItem {
   discount: number;       // ручная скидка, %
   auto: AutoDiscount | null; // автоскидка, если товар не покупают
   tiers?: PriceTier[];       // цена по остатку (условия организаторов)
+  unlimited?: boolean;       // без ограничения количества
+  step?: number;             // цена растёт на столько с каждой покупкой
+  sold?: number;             // сколько уже купили (для растущей цены)
   lastSaleAt: number;     // с этого момента считается автоскидка
   active: boolean;
 }
@@ -64,8 +67,8 @@ export const DEMO_MERCH: Omit<MerchItem, 'lastSaleAt'>[] = [
   { id: 's7_org_ustav', name: 'Кастомизированный Устав от Юлечки Сорокиной', emoji: '📜', text: 'От организаторов: Юля Сорокина', price: 50, stock: 1, total: 1, perPerson: 1, discount: 0, auto: null, active: true },
   { id: 's7_org_pickles', name: 'Банка огурцов «Папин гостинец»', emoji: '🥒', text: 'От организаторов: Даша Батусова', price: 50, stock: 1, total: 1, perPerson: 1, discount: 0, auto: null, active: true },
   { id: 's7_org_spinner', name: 'Крутячок от Матвея Нечаева', emoji: '🌀', text: 'От организаторов: Матвей Нечаев', price: 40, stock: 1, total: 1, perPerson: 1, discount: 0, auto: null, active: true },
-  { id: 's7_org_smile', name: 'Улыбка Макса Борисова', emoji: '😊', text: 'От организаторов: Макс Борисов', price: 20, stock: 1, total: 1, perPerson: 1, discount: 0, auto: null, active: true },
-  { id: 's7_org_hug', name: 'Объятия Макса Борисова', emoji: '🤗', text: 'От организаторов: Макс Борисов', price: 30, stock: 1, total: 1, perPerson: 1, discount: 0, auto: null, active: true },
+  { id: 's7_org_smile', name: 'Улыбка Макса Борисова', emoji: '😊', text: 'От организаторов: Макс Борисов', price: 5, stock: 0, total: 0, perPerson: 1000, discount: 0, auto: null, active: true, unlimited: true, step: 1, sold: 0 },
+  { id: 's7_org_hug', name: 'Объятия Макса Борисова', emoji: '🤗', text: 'От организаторов: Макс Борисов', price: 10, stock: 0, total: 0, perPerson: 1000, discount: 0, auto: null, active: true, unlimited: true, step: 1, sold: 0 },
   { id: 's7_org_energy', name: 'Энергетик Adrenaline Rush (0,25)', emoji: '⚡', text: 'От организаторов: Катя Корякова', price: 40, stock: 1, total: 1, perPerson: 1, discount: 0, auto: null, active: true },
   { id: 's7_org_notebook_kk', name: 'Блокнот «Профсоюз всегда поможет»', emoji: '📓', text: 'От организаторов: Катя Корякова', price: 40, stock: 1, total: 1, perPerson: 1, discount: 0, auto: null, active: true },
   { id: 's7_org_bunny', name: '«Мальчик зайчик светлячок малыш»', emoji: '🐰', text: 'От организаторов: Ульяна Полякова', price: 50, stock: 1, total: 1, perPerson: 1, discount: 0, auto: null, active: true },
@@ -77,6 +80,7 @@ export const DEMO_MERCH: Omit<MerchItem, 'lastSaleAt'>[] = [
 
 /** Базовая цена с учётом остатка: из подходящих условий берётся то, где порог меньше всего (как на сервере). */
 export function basePrice(it: MerchItem) {
+  if (it.step) return it.price + it.step * (it.sold ?? 0);
   const t = (it.tiers ?? []).filter((x) => x.price > 0 && it.stock <= x.left).sort((a, b) => a.left - b.left)[0];
   return t ? t.price : it.price;
 }
@@ -90,7 +94,7 @@ export function nextTier(it: MerchItem) {
 /** Текущая цена с учётом остатка, ручной скидки и автоскидки за «простой». */
 export function merchPrice(it: MerchItem, now = Date.now()) {
   let auto = 0;
-  if (it.auto && it.auto.afterHours > 0 && it.stock > 0) {
+  if (it.auto && it.auto.afterHours > 0 && it.stock > 0 && !it.unlimited) {
     const steps = Math.floor((now - it.lastSaleAt) / (it.auto.afterHours * 3600_000));
     auto = Math.min(it.auto.maxPct, Math.max(0, steps) * it.auto.stepPct);
   }

@@ -54,8 +54,8 @@ select pg_temp.ok((select count(*) from task_defs where id in ('lightning', 'bre
 
 \echo '--- мерч выезда'
 select pg_temp.ok((select count(*) from merch_items where active and id like 's7\_%') = 34, '34 позиции мерча');
-select pg_temp.ok((select sum(total) from merch_items where active and id like 's7\_%') = 82, '82 штуки');
-select pg_temp.ok((select sum(p) from (select max(price) p from merch_items where active and id like 's7\_%' group by case when name like 'Футболка с горами%' then name else split_part(name, ' · ', 1) end) x) = 2600, 'по штуке каждого вида — 2600 баллов');
+select pg_temp.ok((select sum(total) from merch_items where active and id like 's7\_%' and not unlimited) = 80, '80 штук + 2 безлимитных');
+select pg_temp.ok((select sum(p) from (select max(price) p from merch_items where active and id like 's7\_%' group by case when name like 'Футболка с горами%' then name else split_part(name, ' · ', 1) end) x) = 2565, 'по штуке каждого вида — 2565 баллов');
 select pg_temp.ok(not exists (select 1 from merch_items where active and id in ('removka', 'stickers', 'pin', 'notebook', 'shopper', 'hoodie')), 'старых тестовых товаров в продаже нет');
 
 \echo '--- колесо: ставка баллами — всегда проигрыш'
@@ -73,7 +73,7 @@ insert into settings (key, value) values ('shop_open', 'true'::jsonb) on conflic
 set test.uid = :'p1';
 select casino_points_bet((my_wallet()->>'balance')::int - 30) is not null as allin \gset
 select pg_temp.fails($q$select merch_buy('s7_removka')$q$, 'Не хватает%', 'проигранные баллы не потратить на мерч');
-select pg_temp.ok((merch_buy('s7_org_smile')->>'price')::int = 20, 'на остаток можно купить подешевле');
+select pg_temp.ok((merch_buy('s7_org_smile')->>'price')::int = 5, 'на остаток можно купить подешевле');
 set test.uid = :'staff_id';
 select pg_temp.ok((casino_stats()->>'points')::int >= 100 and (casino_stats()->>'pointsPlayers')::int >= 1, 'итог казино: проиграно баллов');
 select _reset_all();

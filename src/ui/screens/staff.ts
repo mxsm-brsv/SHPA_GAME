@@ -164,6 +164,7 @@ export function openStaff(app: App) {
         const p = merchPrice(it);
         return `<div class="card col" data-item="${it.id}" style="gap:6px">
           <div class="row"><span style="font-size:26px">${esc(it.emoji)}</span><b class="grow">${esc(it.name)}</b><span class="small">${starSvg(12)} ${fmt(p.price)}${p.pct ? ` <span class="gold">(−${p.pct}%)</span>` : ''}</span></div>
+          ${it.unlimited ? `<div class="small gold">Без ограничений: купили ${fmt(it.sold ?? 0)}, старт ${fmt(it.price)} и +${it.step ?? 0} за каждую покупку. «Осталось» здесь не важно.</div>` : ''}
           <div class="mgrid">
             <label>Осталось<input class="input-ans" type="number" data-f="stock" value="${it.stock}" min="0"></label>
             <label>Цена<input class="input-ans" type="number" data-f="price" value="${it.price}" min="1"></label>

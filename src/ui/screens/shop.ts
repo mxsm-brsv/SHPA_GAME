@@ -38,7 +38,7 @@ export function renderShop(app: App) {
       const p = merchPrice(it);
       const soon = nextDiscountIn(it);
       const nt = nextTier(it);
-      const out = it.stock <= 0;
+      const out = !it.unlimited && it.stock <= 0;
       const limit = mine(it.id) >= it.perPerson;
       const can = cfg.shopOpen && !out && !limit && wallet.balance >= p.price && !staff;
       return `<div class="merch ${out ? 'out' : ''}">
@@ -46,7 +46,7 @@ export function renderShop(app: App) {
         <div class="m-emoji">${esc(it.emoji)}</div>
         <b>${esc(it.name)}</b>
         ${it.text ? `<div class="small muted">${esc(it.text)}</div>` : ''}
-        <div class="small ${it.stock <= 2 && !out ? 'gold' : 'muted'}">${out ? 'закончилось' : `осталось ${it.stock} из ${it.total}`}</div>
+        ${it.unlimited ? `<div class="small gold">без ограничений · купили ${fmt(it.sold ?? 0)}${it.step ? ` · каждая покупка +${it.step}` : ''}</div>` : `<div class="small ${it.stock <= 2 && !out ? 'gold' : 'muted'}">${out ? 'закончилось' : `осталось ${it.stock} из ${it.total}`}</div>`}
         <div class="m-price">${p.pct ? `<s>${fmt(p.base)}</s>` : ''}${starSvg(14)}<b>${fmt(p.price)}</b></div>
         ${!out && nt ? `<div class="small ${nt.price > p.base ? 'gold' : 'muted'}">останется ${nt.left} — цена ${nt.price > p.base ? 'вырастет до' : 'упадёт до'} ${fmt(nt.price)}</div>` : ''}
         ${soon && !out && cfg.shopOpen ? `<div class="small muted">ещё −${it.auto!.stepPct}% через ${hm(soon)}</div>` : ''}
@@ -62,7 +62,7 @@ export function renderShop(app: App) {
         <button class="btn btn-blue btn-sm" data-act="qr">${icon('qr', 16)} Показать мой QR для выдачи</button></div>` : ''}
       <div class="merch-grid">${items.map(card).join('') || '<div class="muted">Товаров пока нет</div>'}</div>
       ${orders.filter((o) => o.status !== 'reserved').length ? `<div class="section-h">История</div><div class="list">${orders.filter((o) => o.status !== 'reserved').map((o) => `<div class="li small">${esc(o.emoji)} <span class="grow">${esc(o.itemName)}</span><span class="muted">${o.status === 'issued' ? 'выдано' : 'отменено, баллы вернулись'}</span></div>`).join('')}</div>` : ''}
-      <div class="small muted">Скидки: если товар долго не берут, цена сама снижается (до −40%). Количество ограничено — кто первый купил, тот и забрал.</div>`;
+      <div class="small muted">Скидки: если товар долго не берут, цена сама снижается (до −40%). Количество ограничено — кто первый купил, тот и забрал. Улыбки и объятия Макса — без ограничений, но дорожают с каждой покупкой.</div>`;
   };
 
   const draw = () => { node.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', (b as HTMLElement).dataset.v === tab)); if (tab === 'merch') drawMerch(); else drawCoins(); };
