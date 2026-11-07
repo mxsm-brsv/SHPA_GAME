@@ -14,8 +14,6 @@ const BOT = (CFG.bot || '').replace(/^@/, '');
 const PAGE_URL = DEMO ? 'https://mxsm-brsv.github.io/SHPA_GAME/knopka/' : `${location.origin}${location.pathname}`;
 /** Ссылка для участников: бот вечерки (если настроен), иначе страница в браузере. */
 const JOIN_URL = BOT ? (CFG.mainApp ? `https://t.me/${BOT}?startapp=knopka` : `https://t.me/${BOT}?start=go`) : PAGE_URL;
-/** В демо — под кем можно войти (ФИО, группа). */
-let DEMO_PEOPLE = /** @type {string[][]} */ ([]);
 
 const memory = new Map();
 const LS = DEMO
@@ -224,30 +222,76 @@ async function teamMode() {
   let orgMode = false;
   const fioInp = /** @type {HTMLInputElement} */ (h('input', { autocomplete: 'name', maxlength: 80, placeholder: 'Фамилия Имя Отчество', enterkeyhint: 'next', autocapitalize: 'words' }));
   const grpInp = /** @type {HTMLInputElement} */ (h('input', { autocomplete: 'off', maxlength: 20, placeholder: 'Например, ЭР-01-24', enterkeyhint: 'go', autocapitalize: 'characters', spellcheck: 'false' }));
-  const codeInp = /** @type {HTMLInputElement} */ (h('input', { autocomplete: 'off', maxlength: 40, placeholder: 'Код организатора', enterkeyhint: 'go', spellcheck: 'false' }));
-  const grpField = h('label', { class: 'field' }, h('span', null, 'Группа'), grpInp);
+  const codeInp = /** @type {HTMLInputElement} */ (h('input', { autocomplete: 'off', maxlength: 60, placeholder: 'Код организатора', enterkeyhint: 'go', spellcheck: 'false', autocapitalize: 'off' }));
+  const fioField = autocomplete(h('label', { class: 'field' }, h('span', null, 'ФИО'), fioInp), fioInp, 'fio', () => (orgMode ? codeInp : grpInp).focus());
+  const grpField = autocomplete(h('label', { class: 'field' }, h('span', null, 'Группа'), grpInp), grpInp, 'grp', () => login());
   const codeField = h('label', { class: 'field hidden' }, h('span', null, 'Код организатора'), codeInp);
   const loginErr = h('p', { class: 'err', role: 'alert' });
   const loginBtn = bv('sun big wide', 'Войти', () => login());
-  const orgLink = h('button', { class: 'link', type: 'button', onclick: () => setOrg(!orgMode) }, 'Я из оргкомитета');
-  const loginLead = h('p', { class: 'lead' }, 'Напиши ФИО и группу — как в списке выезда. Профбюро подтянется само: за его клип голосовать нельзя, а кнопку жмёт кто-то из вашей команды.');
+  const orgLink = h('button', { class: 'link', type: 'button', onclick: () => setOrg(!orgMode) }, 'Я организатор');
+  const LEAD_PART = 'Начни писать ФИО и группу — подскажем, как в списке выезда. Профбюро подтянется само: за его клип голосовать нельзя, а кнопку жмёт кто-то из вашей команды.';
+  const loginLead = h('p', { class: 'lead' }, LEAD_PART);
   const pick = h('section', { class: 'pick login hidden' },
     h('h1', null, 'Кто ты?'), loginLead,
     h('form', { class: 'card-form', onsubmit: (e) => { e.preventDefault(); login(); } },
-      h('label', { class: 'field' }, h('span', null, 'ФИО'), fioInp), grpField, codeField, loginErr, loginBtn,
-      DEMO ? h('div', { class: 'demo-hint' }, h('span', null, 'Демо — попробуй:'),
-        ...DEMO_PEOPLE.map(([f, g]) => h('button', { class: 'chip', type: 'button', onclick: () => { setOrg(false); fioInp.value = f; grpInp.value = g; loginErr.textContent = ''; } }, `${f}, ${g}`))) : null),
-    h('div', { class: 'foot' }, orgLink, h('button', { class: 'link', type: 'button', onclick: () => switchToHost() }, 'Я ведущий')));
-  fioInp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); (orgMode ? codeInp : grpInp).focus(); } });
+      fioField, grpField, codeField, loginErr, loginBtn,
+      DEMO ? h('div', { class: 'demo-hint' }, h('span', null, 'Демо — попробуй начать писать «Смир», «Орл» или группу «ИРЭ». Организатор — любое ФИО и код «молния на логотипе».')) : null),
+    h('div', { class: 'foot' }, orgLink));
   /** @param {boolean} on */
   function setOrg(on) {
     orgMode = on;
     grpField.classList.toggle('hidden', on);
     codeField.classList.toggle('hidden', !on);
-    orgLink.textContent = on ? 'Я участник' : 'Я из оргкомитета';
-    loginLead.textContent = on ? 'Оргкомитет входит по ФИО и коду организатора: кнопку за команды не жмёт, голосовать может за любой клип.'
-      : 'Напиши ФИО и группу — как в списке выезда. Профбюро подтянется само: за его клип голосовать нельзя, а кнопку жмёт кто-то из вашей команды.';
+    fioInp.placeholder = on ? 'Фамилия Имя' : 'Фамилия Имя Отчество';
+    orgLink.textContent = on ? 'Я участник' : 'Я организатор';
+    loginLead.textContent = on ? 'Организатор входит по ФИО и коду организатора. После входа можно стать ведущим. Кнопку за команды организатор не жмёт, голосовать может за любой клип.'
+      : LEAD_PART;
     loginErr.textContent = '';
+  }
+
+  /**
+   * Подсказки под полем: ФИО — из списка выезда по первым буквам слов, группа — по первым знакам.
+   * @param {HTMLElement} field @param {HTMLInputElement} inp @param {'fio'|'grp'} kind @param {() => void} next
+   */
+  function autocomplete(field, inp, kind, next) {
+    const list = h('div', { class: 'ac-list hidden', role: 'listbox' });
+    let seq = 0, timer = 0, items = /** @type {string[]} */ ([]), cur = -1;
+    const close = () => { list.classList.add('hidden'); items = []; cur = -1; };
+    const choose = (v) => { inp.value = v; close(); loginErr.textContent = ''; next(); };
+    const words = () => inp.value.toLowerCase().replace(/ё/g, 'е').split(/[^a-zа-я0-9]+/).filter(Boolean);
+    /** выделить начало слов, которые совпали с написанным */
+    const mark = (v) => {
+      if (kind === 'grp') { const n = inp.value.replace(/[^0-9A-Za-zА-Яа-яЁё]/g, '').length; let k = 0, i = 0; for (; i < v.length && k < n; i++) if (/[0-9A-Za-zА-Яа-яЁё]/.test(v[i])) k++; return [h('b', null, v.slice(0, i)), v.slice(i)]; }
+      const ws = words();
+      return v.split(' ').flatMap((w, i) => {
+        const p = ws.filter((q) => w.toLowerCase().replace(/ё/g, 'е').startsWith(q)).sort((a, b) => b.length - a.length)[0];
+        return [i ? ' ' : '', ...(p ? [h('b', null, w.slice(0, p.length)), w.slice(p.length)] : [w])];
+      });
+    };
+    const paint = () => {
+      fill(list, ...items.map((v, i) => h('button', { type: 'button', role: 'option', class: i === cur ? 'on' : '', tabindex: '-1',
+        onpointerdown: (e) => { e.preventDefault(); choose(v); } }, ...mark(v))));
+      list.classList.toggle('hidden', !items.length);
+    };
+    const ask = async () => {
+      const q = inp.value.trim();
+      if ((kind === 'fio' && orgMode) || q.replace(/[^0-9A-Za-zА-Яа-яЁё]/g, '').length < (kind === 'fio' ? 2 : 1)) { close(); return; }
+      const my = ++seq;
+      const r = await api.rpc('bz_suggest', { p_token: token, p_kind: kind, p_q: q }).catch(() => null);
+      if (my !== seq || document.activeElement !== inp) return;
+      items = (r?.items ?? []).filter((v) => v.toLowerCase() !== q.toLowerCase());
+      cur = -1; paint();
+    };
+    inp.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(ask, 140); });
+    inp.addEventListener('focus', () => { if (inp.value.trim()) ask(); });
+    inp.addEventListener('blur', () => setTimeout(close, 120));
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' && items.length) { e.preventDefault(); cur = (cur + 1) % items.length; paint(); }
+      else if (e.key === 'ArrowUp' && items.length) { e.preventDefault(); cur = (cur - 1 + items.length) % items.length; paint(); }
+      else if (e.key === 'Escape') close();
+      else if (e.key === 'Enter') { e.preventDefault(); if (cur >= 0 && items[cur]) choose(items[cur]); else if (items.length === 1) choose(items[0]); else { close(); next(); } }
+    });
+    return h('div', { class: 'ac' }, field, list);
   }
   let loggingIn = false;
   async function login() {
@@ -262,12 +306,21 @@ async function teamMode() {
     if (!r?.ok) { loginErr.textContent = r?.error || 'Не получилось войти'; haptic('bad'); return; }
     haptic('ok');
     const t = r.teams?.find((x) => x.id === r.me?.team);
-    toast(`${r.me?.name ?? 'Привет'}, ${t ? `ты в команде «${t.name}»` : r.me?.org ? 'ты в оргкомитете' : 'вход выполнен'}`);
+    toast(`${r.me?.name ?? 'Привет'}, ${t ? `ты в команде «${t.name}»` : r.me?.org ? 'ты организатор' : 'вход выполнен'}`);
     link.apply(r, performance.now());
+  }
+  async function becomeHost() {
+    const r = await api.rpc('bz_host_enter', { p_token: token }).catch((e) => ({ error: e.message }));
+    if (r?.code === 'auth') return authLost();
+    if (!r?.token) { toast(r?.error || 'Не получилось'); return; }
+    LS.set('knopka.host', r.token);
+    dead = true; link.stop();
+    switchToHost();
   }
   async function logout() {
     const m = me();
-    if (!(await confirmSheet('Это не ты?', `Сейчас вход по ФИО «${m?.fio ?? ''}». Выйди и войди под своим — пока ты не голосовал, это можно.`, 'Выйти'))) return;
+    if (!(await (m?.org ? confirmSheet('Выйти?', 'Чтобы снова войти организатором, понадобится код.', 'Выйти')
+      : confirmSheet('Это не ты?', `Сейчас вход по ФИО «${m?.fio ?? ''}». Выйди и войди под своим — пока ты не голосовал, это можно.`, 'Выйти')))) return;
     const r = await api.rpc('bz_logout', { p_token: token }).catch((e) => ({ error: e.message }));
     if (r?.code === 'auth') return authLost();
     if (!r?.ok) { toast(r?.error || 'Не получилось'); return; }
@@ -366,13 +419,15 @@ async function teamMode() {
         tScore.textContent = String(t.score); tScoreWord.textContent = plural(t.score, 'балл', 'балла', 'баллов');
         scoreBox.classList.remove('hidden'); tNum.classList.remove('hidden');
       } else {
-        fill(tName, m.org ? 'Оргкомитет' : 'Без команды', h('small', null, m.org ? `${m.name} · голосуешь за любой клип` : `${who || m.name} · твоего профбюро нет среди команд`));
+        fill(tName, m.org ? 'Организатор' : 'Без команды', h('small', null, m.org ? `${m.name} · голосуешь за любой клип` : `${who || m.name} · твоего профбюро нет среди команд`));
         scoreBox.classList.add('hidden'); tNum.classList.add('hidden');
       }
       stage.classList.toggle('hidden', !m.captain);
       presser.classList.toggle('hidden', !!m.captain);
       if (!m.captain) {
-        if (!t) fill(presser, h('div', null, m.org ? 'Кнопку жмут команды — у оргкомитета её нет.' : 'Твоего профбюро нет среди команд вечерки. Если это ошибка — подойди к ведущему.'));
+        if (m.org) fill(presser, h('div', { class: 'muted' }, 'Кнопку жмут команды. Ведущий запускает вопросы, отмечает ответы и голосование.'),
+          h('div', { class: 'row' }, bv('sun', 'Стать ведущим', becomeHost)));
+        else if (!t) fill(presser, h('div', null, 'Твоего профбюро нет среди команд вечерки. Если это ошибка — подойди к ведущему.'));
         else if (t.claimed) {
           fill(presser, h('div', { class: 'muted' }, `Кнопку за «${t.name}» жмёт`), h('div', { class: 'who' }, t.captain_name ?? '—'),
             h('div', { class: 'small muted' }, 'Передать кнопку может только он или ведущий.'));
@@ -390,7 +445,8 @@ async function teamMode() {
       fill(footBtn, 
         m.captain && !s.game.locked ? h('button', { class: 'link', type: 'button', onclick: chooseMate }, 'Передать кнопку') : null,
         m.captain && !s.game.locked ? h('button', { class: 'link', type: 'button', onclick: release }, 'Не жать') : null,
-        m.in && m.vote == null && !m.captain ? h('button', { class: 'link', type: 'button', onclick: logout }, 'Это не я') : null);
+        m.org ? h('button', { class: 'link', type: 'button', onclick: becomeHost }, 'Стать ведущим') : null,
+        m.in && m.vote == null && !m.captain ? h('button', { class: 'link', type: 'button', onclick: logout }, m.org ? 'Выйти' : 'Это не я') : null);
       try { if (m.captain) tg?.enableClosingConfirmation?.(); else tg?.disableClosingConfirmation?.(); } catch { /* старый Telegram */ }
     }
 
@@ -605,7 +661,7 @@ function switchToHost() {
 function hostLogin() {
   return new Promise((resolve) => {
     root.className = 'host';
-    const inp = /** @type {HTMLInputElement} */ (h('input', { autocomplete: 'off', autocapitalize: 'characters', maxlength: 60, enterkeyhint: 'go', value: DEMO ? 'ДЕМО' : null }));
+    const inp = /** @type {HTMLInputElement} */ (h('input', { autocomplete: 'off', autocapitalize: 'off', maxlength: 60, enterkeyhint: 'go', value: DEMO ? 'ДЕМО' : null }));
     const err = h('p', { class: 'err' });
     const go = async () => {
       err.textContent = '';
@@ -615,8 +671,8 @@ function hostLogin() {
     inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
     fill(root, topBar().el, h('div', { class: 'host-wrap' }, h('div', { class: 'card-form', style: 'margin:20px 0' },
       h('h1', null, 'Вход ведущего'),
-      h('p', null, DEMO ? 'Это демо — подойдёт любой код.' : 'Код организатора игры ШПА или отдельный код кнопки, если его задали в настройках.'),
-      h('label', { class: 'field' }, h('span', null, 'Код'), inp), err,
+      h('p', null, DEMO ? 'Это демо — подойдёт любой код.' : 'Только для организаторов: код организатора вечерки. С телефона удобнее войти как организатор и нажать «Стать ведущим».'),
+      h('label', { class: 'field' }, h('span', null, 'Код организатора'), inp), err,
       bv('sun big wide', 'Войти', go),
       h('p', { style: 'margin:14px 0 0' }, h('button', { class: 'link dark', type: 'button', onclick: () => { LS.set('knopka.mode', null); fill(root); teamMode(); } }, 'Я участник')))));
     if (DEMO) go(); else inp.focus();
@@ -659,7 +715,7 @@ async function hostMode() {
 
   const team = (id) => S?.teams?.find((t) => t.id === id);
   const tname = (id) => team(id)?.name ?? '—';
-  const people = () => (S?.members ?? []).map(([id, name, fio, teamId, src, kind, online, voted, grp]) => ({ id, name, fio, team: teamId, src, kind, online, voted, grp }));
+  const people = () => (S?.members ?? []).map(([id, name, fio, teamId, src, kind, online, voted, grp, org]) => ({ id, name, fio, team: teamId, src, kind, online, voted, grp, org }));
   let sig = '';
   const phaseEl = h('span', { class: 'phase' });
 
@@ -670,7 +726,7 @@ async function hostMode() {
     const r = S.round;
     const k = JSON.stringify([tab, S.v, r?.status, r?.presses?.map((p) => [p.team, p.confirmed, p.verdict, p.tie, p.unsure]), r?.waiting, r?.offline,
       S.teams.map((t) => [t.id, t.online, tab === 'teams' ? [Math.round((t.rtt ?? 0) / 20), Math.round(t.err ?? 0)] : 0, t.seen_lag > 150]),
-      tab === 'vote' ? [S.vote, S.clips] : 0, tab === 'teams' ? S.members : 0]);
+      tab === 'vote' ? [S.vote, S.clips] : 0, tab === 'teams' ? [S.members, S.roster] : 0]);
     if (k === sig) return;
     sig = k;
     const open = [...body.querySelectorAll('details[open]')].map((d) => /** @type {HTMLElement} */ (d).dataset.k);
@@ -791,7 +847,7 @@ async function hostMode() {
     const memberRow = (p, t) => h('div', { class: 'mrow' },
       h('span', { class: `dot${p.online ? ' on' : ''}` }),
       h('span', { class: 'nm' }, p.fio ?? h('i', null, `${p.name} — не вошёл по ФИО`),
-        h('small', null, [p.grp ? ` · ${p.grp}` : '', p.src === 'host' ? ' · перевёл ведущий' : '', p.kind === 'web' ? ' · браузер' : '', p.voted ? ' · голосовал' : ''].join(''))),
+        h('small', null, [p.org ? ' · организатор' : '', p.grp ? ` · ${p.grp}` : '', p.src === 'host' ? ' · перевёл ведущий' : '', p.kind === 'web' ? ' · браузер' : '', p.voted ? ' · голосовал' : ''].join(''))),
       t && t.captain?.id !== p.id ? bv('small', 'Жмёт он', () => act('captain', { team: t.id, client: p.id })) : t ? h('span', { class: 'pill ok' }, 'жмёт кнопку') : null,
       p.fio ? bv('small', 'Перевести', () => moveSheet(p)) : null,
       p.fio ? bv('small', 'Сбросить вход', async () => { if (await confirmSheet(`Сбросить вход «${p.fio}»?`, 'Телефон снова попросит ФИО и группу, голос и кнопка снимутся. Нужно, если под чужим ФИО вошёл не тот человек.', 'Сбросить')) act('unbind', { client: p.id }); }) : null,
@@ -809,6 +865,7 @@ async function hostMode() {
         mem.length ? h('details', { class: 'members', 'data-k': `t${t.id}` }, h('summary', null, 'Кто в профбюро'), mem.map((p) => memberRow(p, t))) : null);
     });
     const loose = ppl.filter((p) => p.team == null);
+    const R = S.roster ?? { total: 0, in: 0, no_team: 0 };
     return [
       h('section', { class: 'panel' }, h('h2', null, 'Как участникам подключиться'),
         h('div', { class: 'join' }, qrBox(JOIN_URL),
@@ -823,11 +880,91 @@ async function hostMode() {
         h('div', { class: 'row', style: 'justify-content:space-between;margin-bottom:6px' }, h('h2', { style: 'margin:0' }, 'Команды'),
           h('label', { class: 'toggle' }, h('input', { type: 'checkbox', checked: S.game.locked, onchange: (e) => act('lock', { on: e.target.checked }) }), 'Закрыть выбор, кто жмёт')),
         h('div', null, rows),
-        loose.length ? h('details', { class: 'members', 'data-k': 'loose', style: 'margin-top:12px' }, h('summary', null, `Оргкомитет и без команды: ${loose.length}`), loose.map((p) => memberRow(p, null))) : null,
+        loose.length ? h('details', { class: 'members', 'data-k': 'loose', style: 'margin-top:12px' }, h('summary', null, `Организаторы и без команды: ${loose.length}`), loose.map((p) => memberRow(p, null))) : null,
         h('div', { class: 'row', style: 'margin-top:14px' },
           bv('', 'Изменить список команд', () => editTeams()),
           bv('', 'Освободить все кнопки', async () => { if (await confirmSheet('Освободить все кнопки?', 'В каждой команде заново выберут, кто жмёт.', 'Освободить все')) act('release_all'); }))),
+      h('section', { class: 'panel' }, h('h2', null, 'Список выезда'),
+        h('p', { style: 'margin:0 0 12px' }, `В списке ${R.total} ${plural(R.total, 'человек', 'человека', 'человек')}, вошли ${R.in}.`,
+          R.no_team ? ` Без команды (профбюро нет среди команд): ${R.no_team}.` : '',
+          ' По этому списку участники входят и получают подсказки ФИО и группы. Список вечерки отдельный от игры ШПА.'),
+        h('div', { class: 'row' },
+          bv('', 'Загрузить список', () => rosterSheet()),
+          bv('', 'Добавить человека', () => addPersonSheet()))),
     ];
+  }
+
+  /**
+   * Разбор вставленной таблицы: в строке — профбюро, ФИО и группа в любом порядке, через табуляцию (копия из таблицы)
+   * или «;». Строки без ФИО (заголовки, пустые) пропускаются.
+   * @param {string} text @returns {string[][]}
+   */
+  function parseRoster(text) {
+    const PB = ['ГПИ', 'ИВТИ', 'ИГВИЭ', 'ИНЭИ', 'ИРЭ', 'ИТАЭ', 'ИЭВТ', 'ИЭТЭ', 'ИЭЭ', 'ЭНМИ', 'ПРОФКОМ'];
+    const out = [];
+    for (const line of text.split(/\r?\n/)) {
+      const cells = line.split(/\t|;/).map((c) => c.trim()).filter(Boolean);
+      if (!cells.length) continue;
+      const pb = cells.find((c) => PB.includes(c.toUpperCase().replace(/Ё/g, 'Е'))) ?? '';
+      const grp = cells.find((c) => c !== pb && /\d/.test(c) && /^[A-Za-zА-Яа-яЁё]{1,4}[ -]?\d/.test(c) && c.length <= 14) ?? '';
+      const fio = cells.filter((c) => c !== pb && c !== grp && !/\d/.test(c) && /^[А-Яа-яЁёA-Za-z-]+(\s+[А-Яа-яЁёA-Za-z-]+)+$/.test(c))
+        .sort((x, y) => y.length - x.length)[0];
+      if (!fio || /^ф\.?\s*и\.?\s*о/i.test(fio)) continue;
+      out.push([pb, fio.replace(/\s+/g, ' '), grp]);
+    }
+    return out;
+  }
+
+  function rosterSheet() {
+    const ta = /** @type {HTMLTextAreaElement} */ (h('textarea', { spellcheck: 'false', rows: 10, placeholder: 'ИРЭ\tИванова Мария Сергеевна\tЭР-01-25' }));
+    const info = h('p', { class: 'small muted', style: 'margin:6px 0 10px' }, 'Вставьте строки таблицы.');
+    const repl = /** @type {HTMLInputElement} */ (h('input', { type: 'checkbox' }));
+    const file = /** @type {HTMLInputElement} */ (h('input', { type: 'file', accept: '.txt,.tsv,.csv,text/plain,text/csv', class: 'hidden' }));
+    file.addEventListener('change', async () => {
+      const f = file.files?.[0]; if (!f) return;
+      ta.value = await f.text(); ta.dispatchEvent(new Event('input'));
+    });
+    ta.addEventListener('input', () => {
+      const rows = parseRoster(ta.value);
+      const by = {};
+      for (const [pb] of rows) by[pb || 'без профбюро'] = (by[pb || 'без профбюро'] ?? 0) + 1;
+      info.textContent = rows.length ? `Узнано ${rows.length} ${plural(rows.length, 'человек', 'человека', 'человек')}: ${Object.entries(by).map(([k, v]) => `${k} ${v}`).join(', ')}.` : 'Пока ни одного ФИО не узнано.';
+    });
+    sheet((close) => [
+      h('h2', null, 'Загрузить список выезда'),
+      h('p', null, 'Скопируйте из таблицы столбцы «Профбюро», «ФИО», «Группа» (порядок любой) и вставьте сюда — по человеку в строке. Номера, телефоны и размеры можно не убирать: их не сохраним.'),
+      h('label', { class: 'field' }, ta), info, file,
+      h('div', { class: 'row', style: 'margin:0 0 10px' }, bv('small', 'Выбрать файл .txt / .csv', () => file.click())),
+      h('label', { class: 'toggle' }, repl, 'Заменить весь список (кого нет во вставленном — уберём, их вход сбросится)'),
+      h('div', { class: 'row' },
+        bv('sun', 'Загрузить', async () => {
+          const rows = parseRoster(ta.value);
+          if (!rows.length) { toast('Не нашли ни одного ФИО'); return; }
+          const r = await act('roster', { rows, replace: repl.checked });
+          if (r?.loaded) { close(); toast(`Список: добавлено ${r.loaded.added}, обновлено ${r.loaded.updated}${r.loaded.removed ? `, убрано ${r.loaded.removed}` : ''}. Всего ${r.loaded.total}.`); }
+        }),
+        bv('', 'Отмена', close)),
+    ]);
+  }
+
+  function addPersonSheet() {
+    const fio = /** @type {HTMLInputElement} */ (h('input', { maxlength: 80, placeholder: 'Фамилия Имя Отчество', autocapitalize: 'words' }));
+    const grp = /** @type {HTMLInputElement} */ (h('input', { maxlength: 20, placeholder: 'Например, ЭР-01-24', autocapitalize: 'characters' }));
+    const pb = /** @type {HTMLSelectElement} */ (h('select', null, ...S.teams.map((t) => h('option', { value: t.name }, t.name)), h('option', { value: '' }, 'Без профбюро')));
+    sheet((close) => [
+      h('h2', null, 'Добавить человека в список'),
+      h('p', null, 'Если человека нет в списке выезда или в нём ошибка. Такое же ФИО — обновится.'),
+      h('label', { class: 'field' }, h('span', null, 'ФИО'), fio),
+      h('label', { class: 'field' }, h('span', null, 'Группа'), grp),
+      h('label', { class: 'field' }, h('span', null, 'Профбюро'), pb),
+      h('div', { class: 'row' },
+        bv('sun', 'Добавить', async () => {
+          if (fio.value.trim().split(/\s+/).length < 2) { toast('Напишите фамилию и имя'); return; }
+          const r = await act('roster', { rows: [[pb.value, fio.value, grp.value]] });
+          if (r?.loaded) { close(); toast(r.loaded.added ? 'Добавлен в список' : 'Обновлён в списке'); }
+        }),
+        bv('', 'Отмена', close)),
+    ]);
   }
 
   /** @param {any} p */
@@ -872,7 +1009,7 @@ async function hostMode() {
     /** @param {string} label @param {string} key @param {[number,string][]} opts @param {number} cur */
     const sel = (label, key, opts, cur) => h('label', { class: 'field' }, h('span', null, label),
       h('select', { onchange: (e) => act('settings', { [key]: Number(e.target.value) }) }, ...opts.map(([v, t]) => h('option', { value: v, selected: v === cur }, t))));
-    const codeInp = /** @type {HTMLInputElement} */ (h('input', { maxlength: 60, autocomplete: 'off', placeholder: g.own_code ? 'Задан — введите новый, чтобы сменить' : 'Не задан' }));
+    const codeInp = /** @type {HTMLInputElement} */ (h('input', { maxlength: 60, autocomplete: 'off', placeholder: 'Новый код (не меньше 6 знаков)' }));
     const title = /** @type {HTMLInputElement} */ (h('input', { maxlength: 60, value: g.title }));
     const vtitle = /** @type {HTMLInputElement} */ (h('input', { maxlength: 60, value: S.vote.title }));
     return [
@@ -889,12 +1026,11 @@ async function hostMode() {
         h('label', { class: 'field' }, h('span', null, 'Вечер'), title),
         h('label', { class: 'field' }, h('span', null, 'Голосование'), vtitle),
         bv('small', 'Сохранить названия', () => act('settings', { title: title.value, vote_title: vtitle.value }))),
-      h('section', { class: 'panel' }, h('h2', null, 'Код ведущего'),
-        h('p', { style: 'margin:0 0 12px' }, 'Код организатора ШПА подходит всегда. Можно задать отдельный код — только для вечерки, чтобы передать его ведущему.'),
+      h('section', { class: 'panel' }, h('h2', null, 'Код организатора'),
+        h('p', { style: 'margin:0 0 12px' }, 'С этим кодом организаторы входят в вечерку и могут стать ведущими. Регистр, кавычки и лишние пробелы не важны. Новый код заменит старый — все, кто вошёл со старым, останутся, новые будут входить с новым.'),
         h('label', { class: 'field' }, codeInp),
         h('div', { class: 'row' },
-          bv('small', 'Задать код', async () => { if (await act('host_code', { code: codeInp.value })) { codeInp.value = ''; toast('Код ведущего сохранён'); } }),
-          g.own_code ? bv('small', 'Убрать свой код', () => act('host_code', { code: '' })) : null,
+          bv('small', 'Сменить код', async () => { if (await act('host_code', { code: codeInp.value })) { codeInp.value = ''; toast('Код организатора сменён'); } }),
           bv('small', 'Выйти на других устройствах', () => act('logout_others').then((r) => r && toast('Другие ведущие вышли'))))),
       DEMO ? null : h('section', { class: 'panel' }, h('h2', null, 'Это устройство'),
         h('div', { class: 'row' },
@@ -1043,7 +1179,6 @@ async function screenMode() {
     try { srv = /** @type {any} */ (window.parent)?.__knopkaDemo ?? null; } catch { /* другой источник */ }
     if (!srv) { srv = /** @type {any} */ (window).__knopkaDemo ?? new DemoServer(); /** @type {any} */ (window).__knopkaDemo = srv; }
     api = new DemoApi(srv);
-    DEMO_PEOPLE = srv.hints ?? [];
   } else {
     if (!CFG.url) { fatal('Кнопка не настроена', 'Нет адреса сервера. Его подставляет сборка на GitHub (Deploy game) из deploy.env.'); return; }
     api = new Api(CFG.url, CFG.key || '');

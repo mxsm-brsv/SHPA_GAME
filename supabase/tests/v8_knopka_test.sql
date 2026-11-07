@@ -40,9 +40,12 @@ select pg_temp.ok(bz_claim(:'tc', :t3)->>'ok' = 'true', 'Вика берёт к�
 select pg_temp.ok(bz_claim('чужой-токен', :t4)->>'code' = 'auth', 'без токена — нельзя');
 
 \echo '--- ведущий'
-select pg_temp.ok(bz_host_login('не тот код', 'k1')->>'error' = 'Неверный код', 'неверный код');
-select bz_host_login(setting_text('staff_code', ''), 'k1')->>'token' as th \gset
-select pg_temp.ok(length(:'th') = 48, 'код организатора подходит');
+-- код организатора вечерки в тестах — свой (настоящий хранится только отпечатком)
+update bz_game set host_code_hash = _bz_hash(_bz_norm_code('Тест код вечерки')) where id = 1;
+select pg_temp.ok(bz_host_login('не тот код', 'k1')->>'error' = 'Неверный код организатора', 'неверный код');
+select pg_temp.ok(bz_host_login(setting_text('staff_code', ''), 'k1')->>'ok' = 'false', 'код организатора игры ШПА для вечерки не подходит');
+select bz_host_login('«тест КОД вечерки»', 'k1')->>'token' as th \gset
+select pg_temp.ok(length(:'th') = 48, 'код организатора вечерки подходит (регистр и кавычки не важны)');
 select pg_temp.ok(bz_host_state('левый')->>'error' = 'auth', 'без входа ведущего состояния нет');
 select pg_temp.ok((bz_host(:'th', 'settings', '{"countdown_ms": 0, "limit_ms": 0}')->'game'->>'countdown_ms')::int = 0, 'обратный отсчёт 0 для теста');
 
@@ -158,8 +161,11 @@ select pg_temp.ok(bz_claim(:'td', :t4)->>'error' like '%закрыл выбор%
 select pg_temp.ok(bz_unclaim(:'ta')->>'error' is not null, 'замок: капитан не уходит сам');
 select bz_host(:'th', 'lock', '{"on": false}') is not null;
 select pg_temp.ok(bz_host(:'th', 'host_code', '{"code": "аб"}')->>'error' is not null, 'короткий код не ставится');
+select pg_temp.ok(bz_host(:'th', 'host_code', '{"code": ""}')->>'error' is not null, 'пустой код не ставится');
 select bz_host(:'th', 'host_code', '{"code": "вечерка  2026"}') is not null;
-select pg_temp.ok(bz_host_login('ВЕЧЕРКА 2026', 'k2')->>'ok' = 'true', 'свой код (регистр и пробелы не важны)');
+select pg_temp.ok(bz_host_login('ВЕЧЕРКА 2026', 'k2')->>'ok' = 'true', 'новый код (регистр и пробелы не важны)');
+select pg_temp.ok(bz_host_login('Тест код вечерки', 'k2')->>'ok' = 'false', 'старый код больше не подходит');
+update bz_game set host_code_hash = _bz_hash(_bz_norm_code('Тест код вечерки')) where id = 1;
 select bz_host(:'th', 'release', jsonb_build_object('team', :t3)) is not null;
 select pg_temp.ok((select captain is null from bz_teams where id = :t3), 'ведущий освободил команду 3');
 
