@@ -23,7 +23,7 @@ jobs:
           grep -E '^(node_load1 |node_load5 |node_load15 |node_memory_MemTotal_bytes|node_memory_MemAvailable_bytes|node_memory_SwapTotal_bytes|node_memory_SwapFree_bytes|node_cpu_seconds_total\{cpu="0",mode="(idle|iowait|steal|user|system)"\})' /tmp/m.txt | head -20
           ANON=$(curl -s -m 20 -H "$H" "https://api.supabase.com/v1/projects/$REF/api-keys" | python3 -c "import sys,json; print(next((k['api_key'] for k in json.load(sys.stdin) if k.get('name')=='anon'), ''))")
           echo "::add-mask::$ANON"
-          for i in $(seq 1 40); do
+          for i in $(seq 1 12); do
             sleep 15
             st=$(curl -s -m 20 -H "$H" "https://api.supabase.com/v1/projects/$REF" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status'))" 2>/dev/null)
             a=$(curl -s -o /dev/null -m 15 -w '%{http_code} %{time_total}s' -H "apikey: $ANON" "$SUPABASE_URL/auth/v1/health")
