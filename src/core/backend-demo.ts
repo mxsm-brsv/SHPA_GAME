@@ -944,6 +944,7 @@ export class DemoBackend implements Backend {
     return `Загружено строк: ${rows.length}${over.length ? `. Внимание: больше ${CLAN.pbLimit} человек в ${over.map(([f]) => f).join(', ')} — войдут только первые ${CLAN.pbLimit}` : ''}`;
   }
   async staffRosterReset() { return 'В демо привязок нет — сброс нужен только на сервере'; }
+  async staffRosterRemove() { return 'В демо список не меняется — убирать можно только на сервере'; }
   async adminResetProgress(confirm: string) {
     if (!this.admin) throw new Error('Сбросить прогресс могут только админы');
     if (confirm.trim().toUpperCase() !== 'СБРОС') throw new Error('Для подтверждения введи слово СБРОС');

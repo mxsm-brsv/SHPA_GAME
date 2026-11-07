@@ -7,7 +7,7 @@ interface TgWebApp {
   setHeaderColor?(c: string): void;
   setBackgroundColor?(c: string): void;
   disableVerticalSwipes?(): void;
-  HapticFeedback?: { impactOccurred(s: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft'): void; notificationOccurred(t: 'error' | 'success' | 'warning'): void };
+  HapticFeedback?: { impactOccurred(s: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft'): void; notificationOccurred(t: 'error' | 'success' | 'warning'): void; selectionChanged?(): void };
   BackButton?: { show(): void; hide(): void; onClick(cb: () => void): void; offClick(cb: () => void): void };
   openTelegramLink?(url: string): void;
   openLink?(url: string): void;
@@ -51,6 +51,16 @@ export function haptic(kind: 'tap' | 'ok' | 'bad' | 'heavy' = 'tap') {
     if (kind === 'tap') h.impactOccurred('light');
     else if (kind === 'heavy') h.impactOccurred('heavy');
     else h.notificationOccurred(kind === 'ok' ? 'success' : 'error');
+  } catch { /* нет вибро */ }
+}
+
+/** Тонкая вибрация для антистресса: мягкий толчок, щелчок, «текстура» при движении пальцем. */
+export function feel(kind: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft' | 'select') {
+  try {
+    const h = tg?.HapticFeedback;
+    if (!h) { if (kind !== 'select' && navigator.vibrate) navigator.vibrate(kind === 'heavy' ? 25 : kind === 'medium' || kind === 'rigid' ? 12 : 6); return; }
+    if (kind === 'select') { if (h.selectionChanged) h.selectionChanged(); else h.impactOccurred('soft'); }
+    else h.impactOccurred(kind);
   } catch { /* нет вибро */ }
 }
 

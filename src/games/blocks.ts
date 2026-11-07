@@ -1,10 +1,14 @@
-// «Расписание» — как Block Blast: ставь фигуры-пары на сетку 8×8, заполненные строки и столбцы исчезают.
+// «Расписание» — как Block Blast: ставь фигуры-пары на сетку, заполненные строки и столбцы исчезают.
+// Сетка 6×6 — линии собираются часто. Комбо растёт за каждую собранную линию и не сгорает, пока между сборами
+// не больше двух ходов впустую (как в Block Blast); чем выше комбо, тем больше осколков, надпись и вспышка.
 import { haptic } from '../core/telegram';
 import { el, fmt } from '../lib/dom';
 import type { App } from '../ui/app';
 import { reportResult, shell, showResult, type PlayCtx } from './kit';
 
-const N = 8;
+const N = 6;
+/** Сколько ходов подряд без сбора линии комбо ещё живо. */
+const COMBO_LIVES = 3;
 const SHAPES: number[][][] = [
   [[1]], [[1, 1]], [[1], [1]], [[1, 1, 1]], [[1], [1], [1]], [[1, 1], [1, 1]], [[1, 1, 1, 1]], [[1], [1], [1], [1]],
   [[1, 0], [1, 1]], [[0, 1], [1, 1]], [[1, 1], [1, 0]], [[1, 1], [0, 1]], [[1, 1, 1], [0, 1, 0]], [[1, 0], [1, 0], [1, 1]],
@@ -20,11 +24,11 @@ export function openBlocks(app: App, ctx?: PlayCtx) {
   sh.setSub('Перетаскивай пары в расписание. Полная строка или столбец — день без окон');
   const grid: (string | null)[][] = Array.from({ length: N }, () => Array(N).fill(null));
   let pieces: Piece[] = [];
-  let score = 0, lines = 0, combo = 0, over = false, busy = false;
+  let score = 0, lines = 0, combo = 0, miss = 0, bestCombo = 0, over = false, busy = false;
   const best = app.state.daily.best.blocks ?? 0;
   const node = el(`<div class="bl-game">
     <div class="bl-info"><span>Лучший сегодня <b>${fmt(best)}</b></span><span data-combo></span></div>
-    <div class="bl-board"><div class="bl-grid" data-g></div><div class="bl-fx" data-fx></div></div>
+    <div class="bl-board" style="--n:${N}"><div class="bl-grid" data-g></div><div class="bl-fx" data-fx></div></div>
     <div class="bl-tray" data-t></div></div>`);
   sh.body.appendChild(node);
   const gEl = node.querySelector<HTMLElement>('[data-g]')!;
@@ -42,7 +46,8 @@ export function openBlocks(app: App, ctx?: PlayCtx) {
     const roll = () => Array.from({ length: 3 }, () => {
       // на тесном поле крупные фигуры (3×3, «уголок» 3×3) выпадают реже
       let i = Math.floor(Math.random() * SHAPES.length);
-      if (filled > 0.45 && SHAPES[i].flat().filter(Boolean).length >= 5 && Math.random() < 0.7) i = Math.floor(Math.random() * 8);
+      // на поле 6×6 крупные фигуры (3×3, «уголок» 3×3) выпадают редко, на тесном поле — почти никогда
+      if (SHAPES[i].flat().filter(Boolean).length >= 5 && Math.random() < (filled > 0.35 ? 0.9 : 0.6)) i = Math.floor(Math.random() * 8);
       const k = Math.floor(Math.random() * COLORS.length);
       return { cells: SHAPES[i], color: COLORS[k], label: LABELS[k], used: false };
     });
@@ -80,20 +85,21 @@ export function openBlocks(app: App, ctx?: PlayCtx) {
       return `<div class="bl-piece ${p.used ? 'used' : ''} ${can || p.used ? '' : 'stuck'}" data-i="${i}" style="grid-template-columns:repeat(${p.cells[0].length},1fr)">${p.cells.map((row) => row.map((v) => `<div class="bl-pc" style="${v ? `--c:${p.color}` : 'visibility:hidden'}"></div>`).join('')).join('')}</div>`;
     }).join('');
   };
-  const PRAISE = ['Без окон!', 'Чистый день!', 'Супер-расписание!', 'Идеальная неделя!', 'Деканат доволен!'];
+  const PRAISE = ['Без окон!', 'Чистый день!', 'Супер-расписание!', 'Идеальная неделя!', 'Деканат доволен!', 'Легенда сессии!'];
 
   // ---------- эффекты как в Block Blast: кубики разлетаются осколками, счёт — крупно на весь экран ----------
   const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
   /** Кубик лопается: несколько осколков его цвета разлетаются и падают. */
-  const shards = (k: number, color: string, delay: number, budget: { n: number }) => {
+  const shards = (k: number, color: string, delay: number, budget: { n: number }, per = 3) => {
     const i = Math.floor(k / N), j = k % N;
     const w = fxEl.clientWidth || 300;
-    const cnt = calm ? 0 : Math.min(3, budget.n);
+    const cnt = calm ? 0 : Math.min(per, budget.n);
     budget.n -= cnt;
     for (let q = 0; q < cnt; q++) {
       const sh2 = el(`<i class="bl-shard" style="left:${((j + 0.5) / N) * 100}%;top:${((i + 0.5) / N) * 100}%;--c:${color}"></i>`);
       fxEl.appendChild(sh2);
-      const dx = (Math.random() * 2 - 1) * w * 0.28, dy = -(w * (0.08 + Math.random() * 0.22)), rot = (Math.random() * 2 - 1) * 540;
+      const spread = 0.28 + Math.min(0.3, combo * 0.05);
+      const dx = (Math.random() * 2 - 1) * w * spread, dy = -(w * (0.08 + Math.random() * (0.22 + Math.min(0.25, combo * 0.04)))), rot = (Math.random() * 2 - 1) * 540;
       const a = sh2.animate([
         { transform: 'translate(-50%, -50%) translate(0, 0) rotate(0deg) scale(1)', opacity: 1 },
         { transform: `translate(-50%, -50%) translate(${dx * 0.55}px, ${dy}px) rotate(${rot / 2}deg) scale(.95)`, opacity: 1, offset: 0.35 },
@@ -102,11 +108,26 @@ export function openBlocks(app: App, ctx?: PlayCtx) {
       a.onfinish = () => sh2.remove();
     }
   };
+  /** Комбо в строке над полем: множитель и сколько ходов без сбора ещё можно сделать. */
+  const drawCombo = () => {
+    comboEl.innerHTML = combo > 1
+      ? `<span class="bl-combo lv${Math.min(5, combo)}">Комбо ×${combo} <i>${Array.from({ length: COMBO_LIVES }, (_, k) => `<b class="${k < COMBO_LIVES - miss ? 'on' : ''}"></b>`).join('')}</i></span>`
+      : '';
+    node.querySelector<HTMLElement>('.bl-board')!.dataset.hot = String(Math.min(5, combo > 1 ? combo : 0));
+  };
   /** Крупно на весь экран: похвала, очки и комбо. */
   const bigShow = (word: string, pts: number, comboN: number, tier: number) => {
-    const ov = el(`<div class="bl-big t${tier}" aria-live="polite"><div class="w">${word}</div><div class="n">+${fmt(pts)}</div>${comboN > 1 ? `<div class="c">Комбо ×${comboN}</div>` : ''}</div>`);
+    const ov = el(`<div class="bl-big t${tier} c${Math.min(6, comboN)}" aria-live="polite"><div class="w">${word}</div><div class="n">+${fmt(pts)}</div>${comboN > 1 ? `<div class="c">Комбо ×${comboN}</div>` : ''}</div>`);
     sh.node.appendChild(ov);
-    setTimeout(() => ov.remove(), 1400);
+    // большое комбо — конфетти по всему экрану
+    if (!calm && comboN >= 4) {
+      const n = Math.min(90, 20 + comboN * 10);
+      for (let q = 0; q < n; q++) {
+        const cf = el(`<i class="bl-conf" style="left:${Math.random() * 100}%;--x:${(Math.random() * 2 - 1) * 90}px;--r:${Math.random() * 900}deg;--d:${(Math.random() * 0.5).toFixed(2)}s;background:${COLORS[q % COLORS.length]}"></i>`);
+        ov.appendChild(cf);
+      }
+    }
+    setTimeout(() => ov.remove(), comboN >= 4 ? 2200 : 1400);
   };
   /** Счёт в шапке «добегает» до нового значения. */
   let shown = 0, tween = 0;
@@ -132,8 +153,8 @@ export function openBlocks(app: App, ctx?: PlayCtx) {
     const cr = r + p.cells.length / 2 - 0.5, cc = c + p.cells[0].length / 2 - 0.5;
     if (pieces.every((x) => x.used)) deal();
     if (!cleared) {
-      combo = 0;
-      comboEl.textContent = '';
+      if (combo) { miss++; if (miss >= COMBO_LIVES) { combo = 0; miss = 0; } }
+      drawCombo();
       showScore();
       drawGrid(); drawTray();
       // фигура «впечатывается» в сетку
@@ -141,37 +162,44 @@ export function openBlocks(app: App, ctx?: PlayCtx) {
       if (!anyFit()) finish();
       return;
     }
-    combo++;
+    combo += cleared; // каждая собранная линия поднимает комбо
+    miss = 0;
+    bestCombo = Math.max(bestCombo, combo);
     lines += cleared;
     const bonus = cleared * 10 * combo * (cleared > 1 ? cleared : 1);
     score += bonus;
     showScore();
-    comboEl.innerHTML = combo > 1 ? `<b class="gold">Комбо ×${combo}</b>` : '';
-    haptic(cleared > 1 ? 'heavy' : 'ok');
+    drawCombo();
+    haptic(cleared > 1 || combo > 2 ? 'heavy' : 'ok');
     // анимация: линии вспыхивают и рассыпаются волной от места, куда поставили фигуру
     drawGrid();
     const gone = new Set<number>();
     fullR.forEach((i) => { for (let j = 0; j < N; j++) gone.add(i * N + j); });
     fullC.forEach((j) => { for (let i = 0; i < N; i++) gone.add(i * N + j); });
-    const budget = { n: 60 };
+    const budget = { n: Math.min(160, 50 + combo * 18) };
+    const per = Math.min(7, 3 + Math.floor(combo / 2));
     gone.forEach((k) => {
       const i = Math.floor(k / N), j = k % N;
       const cell = gEl.children[k] as HTMLElement;
       const d = (Math.abs(i - cr) + Math.abs(j - cc)) * 0.035;
       cell.style.setProperty('--d', `${d}s`);
       cell.classList.add('clr');
-      shards(k, grid[i][j] ?? '#fff', d + 0.1, budget);
+      shards(k, grid[i][j] ?? '#fff', d + 0.1, budget, per);
     });
-    if (cleared > 1 || combo > 2) { const b = node.querySelector<HTMLElement>('.bl-board')!; b.classList.remove('shake'); void b.offsetWidth; b.classList.add('shake'); }
+    if (cleared > 1 || combo > 1) {
+      const b = node.querySelector<HTMLElement>('.bl-board')!;
+      b.style.setProperty('--amp', `${Math.min(14, 3 + combo * 2)}px`);
+      b.classList.remove('shake'); void b.offsetWidth; b.classList.add('shake');
+    }
     fullR.forEach((i) => { const b = el(`<div class="bl-beam" style="top:${(i / N) * 100}%;height:${100 / N}%"></div>`); fxEl.appendChild(b); setTimeout(() => b.remove(), 600); });
     fullC.forEach((j) => { const b = el(`<div class="bl-beam v" style="left:${(j / N) * 100}%;width:${100 / N}%"></div>`); fxEl.appendChild(b); setTimeout(() => b.remove(), 600); });
-    const tier = Math.min(PRAISE.length - 1, cleared - 1 + (combo > 1 ? 1 : 0) + (combo > 3 ? 1 : 0));
+    const tier = Math.min(PRAISE.length - 1, cleared - 1 + Math.floor((combo - 1) / 2));
     bigShow(PRAISE[tier], bonus, combo, tier);
     busy = true;
     setTimeout(() => {
       gone.forEach((k) => (grid[Math.floor(k / N)][k % N] = null));
       busy = false;
-      if (grid.every((row) => row.every((v) => !v))) { score += 300; showScore(); bigShow('Вся неделя свободна!', 300, 0, 4); haptic('heavy'); }
+      if (grid.every((row) => row.every((v) => !v))) { score += 300; showScore(); bigShow('Вся неделя свободна!', 300, Math.max(combo, 4), 5); haptic('heavy'); }
       drawGrid(); drawTray();
       if (!anyFit()) finish();
     }, 520 + gone.size * 4);
@@ -235,7 +263,7 @@ export function openBlocks(app: App, ctx?: PlayCtx) {
     haptic('heavy');
     const value = Math.min(30, Math.floor(score / 60));
     const got = await reportResult(app, 'blocks', score, value, ctx);
-    setTimeout(() => showResult(app, sh, { title: 'Места больше нет', good: score > 600, score, lines: [`Дней без окон: ${lines}`], coins: Math.round(score / 10), got, value, ctx, again: () => { app.closeOverlay(); openBlocks(app, ctx); } }), 400);
+    setTimeout(() => showResult(app, sh, { title: 'Места больше нет', good: score > 600, score, lines: [`Дней без окон: ${lines}`, `Лучшее комбо: ×${bestCombo}`], coins: Math.round(score / 10), got, value, ctx, again: () => { app.closeOverlay(); openBlocks(app, ctx); } }), 400);
   };
   deal(); drawGrid(); drawTray(); sh.setScore('0');
 }
