@@ -219,7 +219,8 @@ export function openStaff(app: App) {
       <textarea class="textarea" data-lt placeholder="Например: через 10 минут финальная стычка — отдайте приказы!" maxlength="500"></textarea>
       <div class="row" style="gap:8px"><select class="input-ans grow" data-lk><option value="info">Инфо</option><option value="alert">Важно</option><option value="win">Победа</option></select>
         <select class="input-ans grow" data-lm><option value="15">15 минут</option><option value="60" selected>1 час</option><option value="240">4 часа</option><option value="">Пока не удалю</option></select></div>
-      <button class="btn btn-gold btn-block" data-act="lpost">Отправить в эфир</button></div>
+      <button class="btn btn-gold btn-block" data-act="lpost">Отправить в эфир</button>
+      <div class="small muted">Сообщение появится в игре и придёт в бот «ШПА» всем, кто вошёл из Telegram.</div></div>
       <div class="col" style="gap:6px">${list.map((a) => `<div class="card row small"><div class="grow"><div style="white-space:pre-wrap">${esc(a.text)}</div><div class="muted">${a.source === 'claude' ? 'Claude · live.json' : esc(a.author ?? 'организатор')} · ${new Date(a.at + 3 * 3600_000).toISOString().slice(11, 16)}${a.until ? ` · до ${new Date(a.until + 3 * 3600_000).toISOString().slice(11, 16)}` : ''}</div></div>
         ${a.source !== 'claude' ? `<button class="btn btn-ghost btn-sm" data-act="ldel" data-id="${a.id}">Убрать</button>` : ''}</div>`).join('')}</div>`;
   };
@@ -544,9 +545,13 @@ export function openStaff(app: App) {
       if (text.length < 3) { toast('Напиши сообщение', 'bad'); return; }
       const kind = ($(body, '[data-lk]') as HTMLSelectElement).value as Announcement['kind'];
       const mv = ($(body, '[data-lm]') as HTMLSelectElement).value;
-      await app.backend.staffAnnounce({ text, kind, minutes: mv ? Number(mv) : null }).catch((e: Error) => toast(e.message, 'bad'));
+      const b = $(body, '[data-act="lpost"]') as HTMLButtonElement;
+      b.disabled = true; b.textContent = 'Отправляю в эфир и в бот…';
+      let r: { bot?: number; total?: number } | void = undefined, failed = false;
+      try { r = await app.backend.staffAnnounce({ text, kind, minutes: mv ? Number(mv) : null }); } catch (e) { failed = true; toast((e as Error).message, 'bad'); }
       await app.refreshLive();
-      toast('Отправлено в эфир', 'ok'); drawLive();
+      if (!failed) toast(r && typeof r.bot === 'number' ? `В эфире и в боте: получили ${r.bot} из ${r.total ?? r.bot}` : 'Отправлено в эфир', 'ok');
+      drawLive();
     },
     ldel: async (t) => { await app.backend.staffAnnounceDelete(t.dataset.id!); await app.refreshLive(); drawLive(); },
     rimp: async () => { const msg = await app.backend.staffRosterImport(($(body, '[data-rimp]') as HTMLTextAreaElement).value).catch((e: Error) => e.message); toast(msg, 'ok'); drawRoster(); },

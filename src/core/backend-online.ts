@@ -367,7 +367,10 @@ export class OnlineBackend implements Backend {
   async staffLectures() { return (await this.rpc<LectureSession[]>('staff_lectures').catch(() => [])) ?? []; }
   async staffLectureClose(id: string) { await this.rpc('staff_lecture_close', { p_id: id }); }
   async staffAnnounce(a: { text: string; kind: Announcement['kind']; minutes: number | null }) {
-    await this.rpc('staff_announce', { p_text: a.text, p_kind: a.kind, p_minutes: a.minutes });
+    const id = await this.rpc<number | null>('staff_announce', { p_text: a.text, p_kind: a.kind, p_minutes: a.minutes });
+    if (!id) return {};
+    const r = await this.sb.fnUser<{ sent?: number; total?: number }>('notify', { announce: Number(id) }).catch(() => null);
+    return { bot: r?.sent, total: r?.total };
   }
   async staffAnnounceDelete(id: string) { await this.rpc('staff_announce_delete', { p_id: id }); }
   async staffRoster() { return (await this.rpc<RosterRow[]>('staff_roster').catch(() => [])) ?? []; }

@@ -135,7 +135,8 @@ export interface Backend {
   staffLectureOpen(p: QrSessionInput): Promise<LectureSession>;
   staffLectures(): Promise<LectureSession[]>;
   staffLectureClose(id: string): Promise<void>;
-  staffAnnounce(a: { text: string; kind: Announcement['kind']; minutes: number | null }): Promise<void>;
+  /** Публикует в «Эфир»; на сервере ещё и рассылает в бот. bot — сколько получили в Telegram. */
+  staffAnnounce(a: { text: string; kind: Announcement['kind']; minutes: number | null }): Promise<{ bot?: number; total?: number } | void>;
   staffAnnounceDelete(id: string): Promise<void>;
   staffRoster(): Promise<RosterRow[]>;
   staffRosterImport(text: string): Promise<string>;
