@@ -2,6 +2,7 @@
 // Ключ X25519 выводится из секрета SUPABASE_DB_PASSWORD (он есть только в GitHub Actions).
 //   node scripts/roster-secure.mjs pubkey              — открытый ключ (его можно показывать)
 //   node scripts/roster-secure.mjs seal <pub> <json>   — зашифровать изменения (локально, без секрета)
+//   node scripts/roster-secure.mjs vecherka-sql <file.enc> — то же для списка вечерки (secure/vecherka-roster.enc)
 //   node scripts/roster-secure.mjs sql <file.enc>      — расшифровать и выдать SQL (только в Actions; в лог не печатать)
 // Формат изменений: { "add": [{ "fio", "group", "faction" }], "remove": ["ФИО", …] }
 import crypto from 'node:crypto';
@@ -58,6 +59,21 @@ if (mode === 'pubkey') {
   out.push(`select 'в ПБ больше ' || public.setting_int('pb_limit', 7) || ': ' || count(*) from (select faction from public.roster where role = 'participant' group by faction having count(*) > public.setting_int('pb_limit', 7)) z;`);
   out.push('commit;');
   process.stdout.write(out.join('\n') + '\n');
+} else if (mode === 'vecherka-sql') {
+  // список вечерки целиком: { "vecherka": [[профбюро, ФИО, группа], …] } → bz_roster (заменяет весь список вечерки)
+  const box = JSON.parse(fs.readFileSync(a, 'utf8'));
+  const priv = myKey(), pk = rawPub(priv), epk = Buffer.from(box.epk, 'base64');
+  const key = kdf(crypto.diffieHellman({ privateKey: priv, publicKey: pubFromRaw(epk) }), epk, pk);
+  const d = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(box.iv, 'base64'));
+  d.setAuthTag(Buffer.from(box.tag, 'base64'));
+  const ch = JSON.parse(Buffer.concat([d.update(Buffer.from(box.ct, 'base64')), d.final()]).toString('utf8'));
+  if (!Array.isArray(ch.vecherka) || !ch.vecherka.length) throw new Error('нет списка вечерки');
+  const json = JSON.stringify(ch.vecherka);
+  if (json.includes('$x$')) throw new Error('bad');
+  process.stdout.write(['begin;',
+    `select 'список вечерки: ' || (public._bz_roster_load($x$${json}$x$::jsonb, true)->'loaded')::text;`,
+    `select 'по профбюро: ' || string_agg(coalesce(team_code, 'без ПБ') || ' ' || n, ', ' order by team_code) from (select team_code, count(*) n from public.bz_roster group by team_code) x;`,
+    'select public._bz_bump();', 'commit;'].join('\n') + '\n');
 } else {
-  console.error('режим: pubkey | seal | sql'); process.exit(1);
+  console.error('режим: pubkey | seal | sql | vecherka-sql'); process.exit(1);
 }

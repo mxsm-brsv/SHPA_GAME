@@ -5,10 +5,10 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'apply — применить secure/roster-update.enc; pubkey — показать открытый ключ'
+        description: 'apply — применить secure/roster-update.enc; vecherka — список вечерки из secure/vecherka-roster.enc; pubkey — показать открытый ключ'
         type: choice
         default: apply
-        options: [apply, pubkey]
+        options: [apply, vecherka, pubkey]
 
 jobs:
   roster:
@@ -25,13 +25,13 @@ jobs:
         if: inputs.mode == 'pubkey'
         run: node scripts/roster-secure.mjs pubkey
       - name: Настройки из deploy.env
-        if: inputs.mode == 'apply'
+        if: inputs.mode != 'pubkey'
         run: |
           source <(grep -E '^[A-Z_]+=' deploy.env)
           REF=$(echo "${SUPABASE_URL:-}" | sed -nE 's#^https://([a-z0-9]+)\.supabase\.co/?$#\1#p')
           echo "PROJECT_REF=$REF" >> "$GITHUB_ENV"
       - name: Подключение к базе
-        if: inputs.mode == 'apply'
+        if: inputs.mode != 'pubkey'
         run: ./scripts/supabase-dburl.sh "$PROJECT_REF"
       - name: Применить изменения списка (в логе только числа)
         if: inputs.mode == 'apply'
@@ -39,6 +39,12 @@ jobs:
           node scripts/roster-secure.mjs sql secure/roster-update.enc > "$RUNNER_TEMP/r.sql"
           psql "$DB_URL" -v ON_ERROR_STOP=1 -qtA -f "$RUNNER_TEMP/r.sql"
           rm -f "$RUNNER_TEMP/r.sql"
+      - name: Список вечерки (в логе только числа)
+        if: inputs.mode == 'vecherka'
+        run: |
+          node scripts/roster-secure.mjs vecherka-sql secure/vecherka-roster.enc > "$RUNNER_TEMP/v.sql"
+          psql "$DB_URL" -v ON_ERROR_STOP=1 -v VERBOSITY=terse -qtA -f "$RUNNER_TEMP/v.sql" | grep -v '^$' || { rm -f "$RUNNER_TEMP/v.sql"; exit 1; }
+          rm -f "$RUNNER_TEMP/v.sql"
       - name: Сводка базы
         if: inputs.mode == 'apply'
         run: psql "$DB_URL" -qtAc "select public._db_summary()"
