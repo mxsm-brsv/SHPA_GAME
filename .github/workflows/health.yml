@@ -1,0 +1,31 @@
+# Быстрая проверка: отвечает ли сервер игры (Supabase) снаружи. В логе — только коды ответов и числа.
+name: Health check
+on:
+  workflow_dispatch:
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: HTTP-точки
+        run: |
+          source <(grep -E '^[A-Z_]+=' deploy.env)
+          for p in auth/v1/health rest/v1/ functions/v1/auth; do
+            printf '%-22s ' "$p"; curl -s -o /dev/null -m 20 -w '%{http_code} %{time_total}s\n' -H "apikey: $SUPABASE_ANON_KEY" "$SUPABASE_URL/$p" || echo fail
+          done
+          printf '%-22s ' 'rpc test_mode'; curl -s -m 20 -X POST -H "apikey: $SUPABASE_ANON_KEY" -H 'Content-Type: application/json' "$SUPABASE_URL/rest/v1/rpc/test_mode" -d '{}' -w ' (%{http_code})\n' || echo fail
+          echo "IP: $(getent hosts ${SUPABASE_URL#https://} | head -3 | awk '{print $1}' | tr '\n' ' ')"
+          REF=$(echo "$SUPABASE_URL" | sed -nE 's#^https://([a-z0-9]+)\.supabase\.co/?$#\1#p')
+          echo "PROJECT_REF=$REF" >> "$GITHUB_ENV"
+      - name: Статус проекта
+        run: |
+          curl -s -m 20 -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" "https://api.supabase.com/v1/projects/$PROJECT_REF" | python3 -c "import sys,json; d=json.load(sys.stdin); print('status:', d.get('status'), '| region:', d.get('region'))" || true
+          curl -s -m 20 -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" "https://api.supabase.com/v1/projects/$PROJECT_REF/health?services=auth&services=rest&services=db&services=realtime" | python3 -c "import sys,json; d=json.load(sys.stdin); [print(x.get('name'), x.get('status'), x.get('healthy')) for x in (d if isinstance(d,list) else [])]" || true
+      - name: База
+        run: |
+          ./scripts/supabase-dburl.sh "$PROJECT_REF"
+          psql "$DB_URL" -qtAc "select 'players ' || count(*) from public.players" -c "select 'активных подключений ' || count(*) from pg_stat_activity" -c "select public._db_summary()::text" | cut -c1-600
