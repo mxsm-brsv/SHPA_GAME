@@ -47,6 +47,8 @@ export class App {
   /** Режим блока: игры, карта и бой на паузе (сервер маленький) */
   lite = false;
   liteUntil = 0;
+  /** Удача колеса: normal — как обычно; win/win_all — «счастливый час» от организаторов */
+  casinoMode: 'normal' | 'win' | 'win_all' = 'normal';
   notes: Note[] = [];
   private seenNotes = new Set<string>();
   private saveTimer = 0;
@@ -147,7 +149,7 @@ export class App {
     const m = await this.backend.gameMode().catch(() => null);
     if (!m) return;
     const changed = m.lite !== this.lite;
-    this.lite = m.lite; this.liteUntil = m.until ?? 0;
+    this.lite = m.lite; this.liteUntil = m.until ?? 0; this.casinoMode = m.casino ?? 'normal';
     if (changed && !first) {
       if (this.lite && SECONDARY.includes(this.tab) && !this.backend.staff) this.tab = 'base';
       this.render();

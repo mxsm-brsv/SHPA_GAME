@@ -19,7 +19,7 @@ import { VOTE_DEFAULT_TITLE, defaultVoteTeams, type VoteAction, type VoteState }
 import type { RaidHit, RaidState } from './raid';
 import type { CasinoStats } from './casino';
 import type { Duel, DuelAnswer, DuelList } from './duel';
-import type { CodeWord, Goal, ScanRow,
+import type { CasinoMode, CodeWord, Goal, ScanRow,
   Announcement, Backend, ClanMember, ClanView, FactionRow, GameConfig, LeaderRow, LectureSession, LoginParams, LoginResult,
   MySubmission, Note, PlayerRef, QrSessionInput, RosterRow, SharedTest, Submission, SubmitResult, TaskPayload, UserQuestion, Wallet,
   DutyZone, TeamMember,
@@ -494,7 +494,8 @@ export class DemoBackend implements Backend {
     return fresh;
   }
   private orders(): MerchOrder[] { return lsJson<MerchOrder[]>(LS_ORDERS, []); }
-  async gameMode() { const u = lsJson<number>('pbgame.lite', 0); return { lite: u > Date.now(), until: u > Date.now() ? u : null }; }
+  async gameMode() { const u = lsJson<number>('pbgame.lite', 0); return { lite: u > Date.now(), until: u > Date.now() ? u : null, casino: lsJson<CasinoMode>('pbgame.casinoMode', 'normal') }; }
+  async staffSetCasino(mode: CasinoMode) { lsSet('pbgame.casinoMode', JSON.stringify(mode)); return mode; }
   async staffSetLite(minutes: number) { lsSet('pbgame.lite', JSON.stringify(minutes > 0 ? Date.now() + minutes * 60000 : 0)); return this.gameMode(); }
   async merchList() { return this.items().filter((x) => x.active); }
   async wallet(s: GameState): Promise<Wallet> {
@@ -508,8 +509,9 @@ export class DemoBackend implements Backend {
     const w = await this.wallet(s);
     if (amount < 1) throw new Error('Ставка — хотя бы 1 балл');
     if (amount > w.balance) throw new Error(`На счёте только ${Math.max(0, w.balance)} баллов`);
-    lsSet(LS_CASINO_PTS, JSON.stringify((w.casino ?? 0) + amount));
-    return { ...(await this.wallet(s)), mult: 0 as const, lost: amount };
+    const win = lsJson<CasinoMode>('pbgame.casinoMode', 'normal') === 'win_all';
+    lsSet(LS_CASINO_PTS, JSON.stringify((w.casino ?? 0) + (win ? -amount : amount)));
+    return { ...(await this.wallet(s)), mult: (win ? 2 : 0) as 0 | 2, lost: win ? -amount : amount };
   }
   async merchBuy(s: GameState, itemId: string) {
     const cfg = await this.config();

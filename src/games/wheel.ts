@@ -77,6 +77,8 @@ export function rigLanding(m: Exclude<Mult, 10>, rnd = Math.random) {
 
 /** Для организаторов — витрина: ×10 и ×2 выпадают часто, ×0 тоже бывает. Показать участникам, что выиграть можно. */
 function staffPick(rnd = Math.random): Mult { const r = rnd(); return r < 0.35 ? 10 : r < 0.72 ? 2 : 0; }
+/** «Счастливый час» (включают организаторы): всегда выигрыш — чаще ×2, иногда ×10. */
+function luckyPick(rnd = Math.random): Mult { return rnd() < 0.2 ? 10 : 2; }
 function straightLanding(m: Mult, rnd = Math.random) {
   const idx = WHEEL.map((x, i) => (x.mult === m ? i : -1)).filter((i) => i >= 0);
   const i = idx[Math.floor(rnd() * idx.length)];
@@ -135,8 +137,9 @@ export function revealHtml(c: CasinoState, all: CasinoStats | null) {
       <div>Вращений: <b>${fmt(c.spins)}</b> · поставил <b>${fmt(c.bet)}</b> · вернулось <b>${fmt(c.won)}</b></div>
       <div>Казино забрало у тебя <b style="color:#ff8a8a">${fmt(lost)}</b> профкоинов — ${pct}% ставок.</div>
       <div class="small muted">Стрелка «почти» останавливалась на ×10: ${fmt(c.near)} раз. Выпало ×10: 0.</div></div>` : '<div class="card small">Ты ни разу не крутил — и ничего не проиграл. Это и есть единственный способ выиграть у казино.</div>'}
-    ${c.pts ? `<div class="card col" style="gap:4px;border-color:#ff8a8a"><b>Баллы на мерч</b><div>Ставок баллами: <b>${fmt(c.ptsSpins ?? 0)}</b> · проиграно <b style="color:#ff8a8a">${fmt(c.pts)}</b> баллов — 100%. На баллы колесо не возвращало ничего: ни разу, ни при какой ставке.</div></div>` : ''}
-    ${all && all.bet ? `<div class="card col" style="gap:4px"><b>Все участники вместе</b><div>Играли ${fmt(all.players)} человек, ${fmt(all.spins)} вращений: поставили ${fmt(all.bet)}, вернулось ${fmt(all.won)}. Казино заработало <b class="gold">${fmt(all.bet - all.won)}</b>.</div>${all.points ? `<div>Баллов на мерч проиграли ${fmt(all.pointsPlayers ?? 0)} человек: <b style="color:#ff8a8a">${fmt(all.points)}</b> — это мерч, который уже никто не купит.</div>` : ''}</div>` : ''}
+    ${c.pts ? `<div class="card col" style="gap:4px;border-color:#ff8a8a"><b>Баллы на мерч</b><div>Ставок баллами: <b>${fmt(c.ptsSpins ?? 0)}</b> · проиграно <b style="color:#ff8a8a">${fmt(c.pts)}</b> баллов — 100%. В обычном режиме на баллы колесо не возвращало ничего: ни разу, ни при какой ставке.</div></div>` : ''}
+    ${c.lucky ? `<div class="card col" style="gap:4px;border-color:var(--gold)"><b>А «счастливый час»?</b><div>${fmt(c.lucky)} ${c.lucky === 1 ? 'вращение пришлось' : 'вращений пришлись'} на «счастливый час» — его включали организаторы кнопкой. Тогда колесо специально отдавало ×2 и ×10${c.luckyWon || c.ptsWon ? ` (тебе досталось ${c.luckyWon ? `${fmt(c.luckyWon)} профкоинов` : ''}${c.luckyWon && c.ptsWon ? ' и ' : ''}${c.ptsWon ? `${fmt(c.ptsWon)} баллов` : ''})` : ''}: так казино показывает, что «выиграть можно», и подогревает интерес. В статистике выше эти вращения не учтены.</div></div>` : ''}
+    ${all && all.bet ? `<div class="card col" style="gap:4px"><b>Все участники вместе</b><div>Играли ${fmt(all.players)} человек, ${fmt(all.spins)} вращений: поставили ${fmt(all.bet)}, вернулось ${fmt(all.won)}. Казино заработало <b class="gold">${fmt(all.bet - all.won)}</b>.</div>${all.points ? `<div>Баллов на мерч проиграли ${fmt(all.pointsPlayers ?? 0)} человек: <b style="color:#ff8a8a">${fmt(all.points)}</b> — это мерч, который уже никто не купит.</div>` : ''}${all.lucky || all.pointsLucky ? `<div class="small muted">Не учтены ${fmt((all.lucky ?? 0) + (all.pointsLucky ?? 0))} вращений «счастливого часа», когда колесо специально выигрывало.</div>` : ''}</div>` : ''}
     <div class="small muted">В настоящих казино выигрыш заведения заложен в правила, а «почти выигрыши», бонусы новичкам и редкие подачки подбирают так же, как здесь. Единственный способ не проиграть — не играть.</div>
   </div>`;
 }
@@ -242,19 +245,21 @@ export function openWheel(app: App, ctx?: PlayCtx) {
     if (!usePts && stake < 10) { toast('Нужно хотя бы 10 профкоинов', 'bad'); return; }
     if (usePts && stake < 1) { toast('На счёте нет баллов', 'bad'); return; }
     spinning = true;
+    const lucky = app.casinoMode !== 'normal';
+    let srvMult: Mult = 0;
     if (usePts) {
-      // баллы списывает сервер до вращения: ставка баллами всегда проигрывает
+      // баллы списывает сервер до вращения: обычно ставка баллами проигрывает, в «счастливый час для всех» — ×2
       drawBets();
       if (staff) { staffPts -= stake; pts = staffPts; }
       else {
-        try { const w = await app.backend.casinoPointsBet(stake); pts = Math.max(0, w.balance); }
+        try { const w = await app.backend.casinoPointsBet(stake); pts = Math.max(0, w.balance); srvMult = (w.mult ?? 0) as Mult; }
         catch (er) { spinning = false; toast((er as Error).message, 'bad'); drawBets(); return; }
       }
     } else s.coins -= stake;
     drawTop(); drawBets();
     haptic('heavy');
-    const m: Mult = staff ? staffPick() : usePts ? 0 : rigPick(c);
-    const land = m === 0 || m === 1 ? rigLanding(m) : staff ? straightLanding(m) : rigLanding(m as Exclude<Mult, 10>);
+    const m: Mult = usePts && !staff ? srvMult : staff ? (app.casinoMode === 'win_all' || (!usePts && lucky) ? luckyPick() : staffPick()) : lucky ? luckyPick() : rigPick(c);
+    const land = m === 0 || m === 1 ? rigLanding(m) : staff || lucky || usePts ? straightLanding(m) : rigLanding(m as Exclude<Mult, 10>);
     // угол колеса a показывает под стрелкой точку θ = −a (mod 360)
     const turns = 4 + Math.floor(Math.random() * 3);
     const from = angle;
@@ -273,9 +278,13 @@ export function openWheel(app: App, ctx?: PlayCtx) {
       if (done) return;
       done = true; cancelAnimationFrame(raf);
       angle = aFinal; setRot(angle);
-      const win = usePts && !staff ? 0 : stake * m;
+      const win = stake * m;
       if (staff) { if (usePts) { staffPts += win; pts = staffPts; } else s.coins += win; }
-      else if (usePts) { c.pts = (c.pts ?? 0) + stake; c.ptsSpins = (c.ptsSpins ?? 0) + 1; if (land.tease === 10) c.near++; }
+      else if (usePts) {
+        if (m) { c.lucky = (c.lucky ?? 0) + 1; c.ptsWon = (c.ptsWon ?? 0) + win - stake; }
+        else { c.pts = (c.pts ?? 0) + stake; c.ptsSpins = (c.ptsSpins ?? 0) + 1; if (land.tease === 10) c.near++; }
+      }
+      else if (lucky) { s.coins += win; c.lucky = (c.lucky ?? 0) + 1; c.luckyWon = (c.luckyWon ?? 0) + win - stake; }
       else { s.coins += win; rigRecord(c, m, stake, land.tease === 10); }
       history.unshift(m); drawHist();
       spinning = false; finishNow = null;
@@ -326,6 +335,15 @@ export function openWheel(app: App, ctx?: PlayCtx) {
     box.querySelector('[data-x]')!.addEventListener('click', () => box.remove());
     sh.node.appendChild(box);
   };
+  // «счастливый час» от организаторов — показываем прямо над кнопкой
+  const note = node.querySelector<HTMLElement>('[data-note]')!;
+  const paintLucky = () => {
+    if (app.casinoMode === 'normal') { note.classList.remove('gold'); note.classList.add('muted'); note.textContent = 'Во время вращения тапай по колесу — закрутится быстрее'; return; }
+    note.classList.remove('muted'); note.classList.add('gold');
+    note.innerHTML = app.casinoMode === 'win_all' ? '<b>Счастливый час!</b> Сейчас выигрывают и профкоины, и баллы' : '<b>Счастливый час!</b> Сейчас профкоины всегда выигрывают';
+  };
+  void app.refreshMode(true).then(paintLucky);
+  const luckyT = window.setInterval(paintLucky, 5000);
   const truthBtn = node.querySelector<HTMLElement>('[data-truth]')!;
   truthBtn.addEventListener('click', () => { if (!spinning) showTruth(); });
   // настройки свежие: организаторы могли включить разоблачение, пока приложение было открыто
@@ -335,7 +353,7 @@ export function openWheel(app: App, ctx?: PlayCtx) {
   }).catch(() => {});
 
   // вышел посреди вращения — результат всё равно засчитывается (ставка уже сделана)
-  sh.onExit(() => { stopAnim(); finishNow?.(); });
+  sh.onExit(() => { clearInterval(luckyT); stopAnim(); finishNow?.(); });
   setRot(0); drawTop(); drawBets(); drawHist();
 }
 

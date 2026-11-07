@@ -45,6 +45,7 @@ export interface Announcement { id: string; text: string; kind: 'info' | 'alert'
 export interface ScanRow { at: number; player: string; group?: string | null; faction: FactionId; kind: 'lecture' | 'speed' | 'cache' | 'cache_gold' | 'egg' | 'word'; title: string; points: number }
 export interface RosterRow { id: string; fio: string; faction: FactionId; group: string; role: Role; bound: boolean; tg?: boolean }
 /** Баллы на мерч: заработано (рейтинг) − потрачено (заказы и проигрыш в колесе). casino — сколько из потраченного ушло в колесо. */
+export type CasinoMode = 'normal' | 'win' | 'win_all';
 export interface Wallet { earned: number; spent: number; balance: number; casino?: number; goals?: number }
 /** Сбор «как на DonationAlerts»: общая цель, донаты баллами, топ спонсоров. */
 export interface Goal { id: number; title: string; text: string; target: number; raised: number; donors: number; mine: number; status: 'open' | 'done' | 'hidden'; effect: 'open_shop' | null; factions: string[] | null; top: { name: string; faction: string; amount: number }[] }
@@ -72,8 +73,10 @@ export interface Backend {
   save(s: GameState): Promise<void>;
   config(): Promise<GameConfig>;
   /** Режим блока: игры на паузе до until (мс). */
-  gameMode(): Promise<{ lite: boolean; until: number | null }>;
+  gameMode(): Promise<{ lite: boolean; until: number | null; casino?: CasinoMode }>;
   staffSetLite(minutes: number): Promise<{ lite: boolean; until: number | null }>;
+  /** Удача колеса для всех: как обычно / профкоины всегда выигрывают / выигрывают и баллы. */
+  staffSetCasino(mode: CasinoMode): Promise<CasinoMode>;
   /** value — сколько рейтинга стоит результат (0..30 для мини-игры). Возвращает начисленное. */
   claimTask(s: GameState, task: string, payload?: TaskPayload): Promise<SubmitResult>;
   submitTask(s: GameState, task: string, payload: TaskPayload): Promise<SubmitResult>;
@@ -163,7 +166,7 @@ export interface Backend {
   /** Общий итог колеса профкома (после разоблачения — всем, до него — организаторам). */
   casinoStats(): Promise<CasinoStats | null>;
   /** Ставка баллами на мерч: всегда ×0, баллы уходят со счёта магазина (рейтинг не меняется). */
-  casinoPointsBet(amount: number): Promise<Wallet & { mult: 0; lost: number }>;
+  casinoPointsBet(amount: number): Promise<Wallet & { mult: 0 | 2; lost: number }>;
   /** Админ: кто отмечает (id строки списка выезда) или null — все организаторы. */
   staffSetCheckinHost(rosterId: string | null): Promise<GameConfig>;
   /** Только админ: обнулить прогресс всех (подтверждение — слово «СБРОС»). */

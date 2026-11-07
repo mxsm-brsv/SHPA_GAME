@@ -42,6 +42,9 @@ export function openStaff(app: App) {
     <div class="card col lite-ctl" style="gap:8px"><div class="row" style="gap:8px"><b class="grow">Режим блока</b><span class="small" data-lstate>…</span></div>
       <div class="small muted">На время блока ставь игры на паузу: мини-игры, карта, бой и рейды не грузят сервер. Задания, QR, подготовка, мерч и эфир работают. Пауза снимется сама.</div>
       <div class="row" style="gap:6px;flex-wrap:wrap"><button class="btn btn-sm btn-gold" data-lite="45">Пауза 45 мин</button><button class="btn btn-sm btn-gold" data-lite="90">90 мин</button><button class="btn btn-sm btn-gold" data-lite="150">2,5 ч</button><button class="btn btn-sm btn-ghost" data-lite="0">Открыть игры</button></div></div>
+    <div class="card col" style="gap:8px"><div class="row" style="gap:8px"><b class="grow">Колесо профкома</b><span class="small" data-cstate>…</span></div>
+      <div class="row" style="gap:6px;flex-wrap:wrap"><button class="btn btn-sm btn-ghost" data-casino="normal">Как обычно</button><button class="btn btn-sm btn-ghost" data-casino="win">Профкоины всегда выигрывают</button><button class="btn btn-sm btn-ghost" data-casino="win_all">Выигрывают и баллы</button></div>
+      <div class="small muted">«Как обычно» — профкоины по правилам колеса, ставки баллами проигрывают. Счастливый час включается для всех сразу и объявляется в эфире, «Как обычно» его выключает.</div></div>
     <div class="chips">${TABS.map(([k, n]) => `<button class="chip ${k === tab ? 'on' : ''}" data-act="tab" data-v="${k}">${n}</button>`).join('')}</div>
     <div data-body class="col" style="gap:10px"></div>
     <datalist id="reasons">${REASONS.map((r) => `<option value="${esc(r)}">`).join('')}</datalist>
@@ -53,7 +56,22 @@ export function openStaff(app: App) {
     const st = node.querySelector<HTMLElement>('[data-lstate]');
     if (st) { st.textContent = m.lite ? `игры на паузе до ${t}` : 'игры открыты'; st.className = `small ${m.lite ? 'gold' : 'muted'}`; }
   };
-  app.backend.gameMode().then(paintLite).catch(() => {});
+  const CASINO_TXT: Record<string, string> = { normal: 'как обычно', win: 'профкоины всегда выигрывают', win_all: 'выигрывают и профкоины, и баллы' };
+  const paintCasino = (m: string) => {
+    const st = node.querySelector<HTMLElement>('[data-cstate]');
+    if (st) { st.textContent = CASINO_TXT[m] ?? m; st.className = `small ${m === 'normal' ? 'muted' : 'gold'}`; }
+    node.querySelectorAll<HTMLButtonElement>('[data-casino]').forEach((b) => { b.classList.toggle('btn-gold', b.dataset.casino === m); b.classList.toggle('btn-ghost', b.dataset.casino !== m); });
+  };
+  app.backend.gameMode().then((m) => { paintLite(m); paintCasino(m.casino ?? 'normal'); }).catch(() => {});
+  node.querySelectorAll<HTMLButtonElement>('[data-casino]').forEach((b) => b.addEventListener('click', async () => {
+    const mode = b.dataset.casino as 'normal' | 'win' | 'win_all';
+    if (mode !== 'normal' && !confirmTap(b, 'Включить для всех?')) return;
+    try {
+      const r = await app.backend.staffSetCasino(mode);
+      app.casinoMode = r; paintCasino(r); haptic('ok');
+      toast(r === 'normal' ? 'Колесо снова работает как обычно' : 'Счастливый час включён — участники увидят это в эфире', 'ok');
+    } catch (e) { toast((e as Error).message, 'bad'); }
+  }));
   node.querySelectorAll<HTMLButtonElement>('[data-lite]').forEach((b) => b.addEventListener('click', async () => {
     const min = Number(b.dataset.lite);
     try {

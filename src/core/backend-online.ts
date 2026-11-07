@@ -17,7 +17,7 @@ import type { CasinoStats } from './casino';
 import type { Duel, DuelAnswer, DuelList } from './duel';
 import { SKIRMISH_WIN_COINS } from '../config/economy';
 import { fetchLiveJson, parseMerchLines, parseRosterLines } from './backend-demo';
-import type { CodeWord, Goal, ScanRow,
+import type { CasinoMode, CodeWord, Goal, ScanRow,
   Announcement, Backend, ClanView, FactionRow, GameConfig, LeaderRow, LectureSession, LoginParams, LoginResult,
   MySubmission, Note, PlayerRef, QrSessionInput, RosterRow, SharedTest, Submission, SubmitResult, TaskPayload, UserQuestion, Wallet,
   DutyZone, TeamMember,
@@ -231,7 +231,8 @@ export class OnlineBackend implements Backend {
     return this.rpc<{ right: string; explanation: string }>('reveal_answer', { p_id: q.id }).catch(() => ({ right: '—', explanation: '' }));
   }
 
-  async gameMode() { return (await this.rpc<{ lite: boolean; until: number | null }>('game_mode').catch(() => null)) ?? { lite: false, until: null }; }
+  async gameMode() { return (await this.rpc<{ lite: boolean; until: number | null; casino?: CasinoMode }>('game_mode').catch(() => null)) ?? { lite: false, until: null }; }
+  async staffSetCasino(mode: CasinoMode) { return this.rpc<CasinoMode>('staff_set_casino', { p_mode: mode }); }
   async staffSetLite(minutes: number) { return this.rpc<{ lite: boolean; until: number | null }>('staff_set_lite', { p_minutes: minutes }); }
   async leaderboard() {
     const d = await this.rpc<{ players: LeaderRow[]; factions: FactionRow[] }>('leaderboard2').catch(() => null);
@@ -395,7 +396,7 @@ export class OnlineBackend implements Backend {
   async staffRosterRemove(id: string) { return this.rpc<string>('staff_roster_remove', { p_id: id }); }
   async staffSetSetting(key: 'shop_open' | 'require_group' | 'casino_reveal', value: boolean) { await this.rpc('staff_set_setting', { p_key: key, p_value: value }); this.cfg = null; }
   async casinoStats() { return await this.rpc<CasinoStats>('casino_stats'); }
-  async casinoPointsBet(amount: number) { return await this.rpc<Wallet & { mult: 0; lost: number }>('casino_points_bet', { p_amount: amount }); }
+  async casinoPointsBet(amount: number) { return await this.rpc<Wallet & { mult: 0 | 2; lost: number }>('casino_points_bet', { p_amount: amount }); }
   async staffSetCheckinHost(rosterId: string | null) { this.cfg = await this.rpc<GameConfig>('staff_set_checkin_host', { p_roster: rosterId === null ? null : Number(rosterId) }); return this.cfg; }
   async adminResetProgress(confirm: string) {
     const r = await this.rpc<{ players: number; submissions: number; orders: number; qr: number; epoch: number; registrations?: number }>('admin_reset_progress', { p_confirm: confirm });
