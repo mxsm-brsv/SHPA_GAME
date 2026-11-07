@@ -205,12 +205,17 @@ export function openStaff(app: App) {
   // ---------- Мерч ----------
   const drawMerch = async () => {
     body.innerHTML = '<div class="muted">Загрузка…</div>';
+    const shopCfg = await app.backend.config().catch(() => app.cfg);
     const all = await app.backend.staffMerchAll().catch(() => app.backend.merchList());
     const items = all.filter((x) => x.active);
     const hidden = all.filter((x) => !x.active);
     const plan = economyPlan();
     const allKinds = items.reduce((a, it) => a + merchPrice(it).price, 0);
-    body.innerHTML = `<div class="card col" style="gap:4px"><b>Хватит ли баллов на весь мерч</b>
+    body.innerHTML = `<div class="card col" style="gap:8px;border-color:${shopCfg.shopOpen ? 'var(--green)' : 'var(--gold)'}">
+        <div class="row" style="gap:8px"><b class="grow">Магазин ${shopCfg.shopOpen ? 'открыт' : 'закрыт'}</b><span class="tag">${shopCfg.shopOpen ? 'участники покупают' : 'только смотрят'}</span></div>
+        <div class="small muted">${shopCfg.shopOpen ? 'Закрой, когда мерч на сегодня выдан или нужно остановить покупки. Уже сделанные заказы останутся.' : 'Открой, когда готов стол выдачи. Участники увидят сообщение в эфире и в боте.'}</div>
+        <button class="btn ${shopCfg.shopOpen ? 'btn-red' : 'btn-green'} btn-block" data-shop="${shopCfg.shopOpen ? '0' : '1'}">${shopCfg.shopOpen ? 'Закрыть магазин' : 'Открыть магазин'}</button></div>
+      <div class="card col" style="gap:4px"><b>Хватит ли баллов на весь мерч</b>
         <div class="small">Один предмет каждого вида сейчас стоит <b class="gold">${fmt(allKinds)}</b> баллов. По расчёту заданий и игры за 5–8 ноября: минимум ~${fmt(plan.min)}, активный участник ~${fmt(plan.active)}, максимум ~${fmt(plan.max)}.</div>
         <div class="small ${allKinds <= plan.active ? 'muted' : ''}" style="${allKinds <= plan.active ? '' : 'color:#ff8a8a'}">${allKinds <= plan.active ? 'Активный участник может купить по одному каждого вида, пока товар не закончится.' : 'Дороже, чем набирает активный участник: снизьте цены или добавьте баллов за задания.'}</div></div>
       <div class="small muted">Цена — в баллах. «−10% / +10%» меняют цену сразу. «Цена по остатку» — условия: когда осталось столько-то штук, цена становится такой-то (дороже или дешевле). Автоскидка: если товар не покупают N часов, цена снижается на шаг, до потолка.</div>
@@ -246,6 +251,19 @@ export function openStaff(app: App) {
         <div class="small muted">По строке на товар: <b>Название; количество; цена</b>. Можно с эмодзи в начале и описанием четвёртым полем. Из Excel — просто вставь столбцы. Совпадение по названию обновляет количество и цену.</div>
         <textarea class="textarea" data-imp placeholder="🏷️ Ремувки; 3; 150&#10;Шоппер ППО; 5; 300; сумка с логотипом"></textarea>
         <button class="btn btn-gold btn-block" data-act="mimp">Загрузить</button></div>`;
+    body.querySelector<HTMLButtonElement>('[data-shop]')?.addEventListener('click', async (e) => {
+      const b = e.currentTarget as HTMLButtonElement;
+      const open = b.dataset.shop === '1';
+      if (!confirmTap(b, open ? 'Точно открыть? Нажми ещё раз' : 'Точно закрыть? Нажми ещё раз')) return;
+      b.disabled = true;
+      try {
+        await app.backend.staffSetSetting('shop_open', open);
+        app.cfg = { ...app.cfg, shopOpen: open };
+        if (open) await app.backend.staffAnnounce({ text: 'Магазин мерча открыт! Заходи во вкладку «Мерч» — покупай за баллы, забирай у стола выдачи по «Моему QR».', kind: 'win', minutes: 60 }).catch(() => null);
+        toast(open ? 'Магазин открыт — сообщение ушло в эфир и в бот' : 'Магазин закрыт', 'ok'); haptic('ok');
+      } catch (err) { toast((err as Error).message, 'bad'); }
+      drawMerch();
+    });
   };
 
   const tierRow = (left: number | '', price: number | '') => `<div class="row small tier-row" style="gap:6px">Осталось ≤
