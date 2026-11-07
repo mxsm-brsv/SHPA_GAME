@@ -231,6 +231,8 @@ export class OnlineBackend implements Backend {
     return this.rpc<{ right: string; explanation: string }>('reveal_answer', { p_id: q.id }).catch(() => ({ right: '—', explanation: '' }));
   }
 
+  async gameMode() { return (await this.rpc<{ lite: boolean; until: number | null }>('game_mode').catch(() => null)) ?? { lite: false, until: null }; }
+  async staffSetLite(minutes: number) { return this.rpc<{ lite: boolean; until: number | null }>('staff_set_lite', { p_minutes: minutes }); }
   async leaderboard() {
     const d = await this.rpc<{ players: LeaderRow[]; factions: FactionRow[] }>('leaderboard2').catch(() => null);
     return { players: d?.players ?? [], factions: d?.factions ?? [] };

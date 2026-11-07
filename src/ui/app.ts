@@ -21,7 +21,7 @@ import { openProjector } from './screens/projector';
 
 /** Нижнее меню — главное для школы; Отряд, Карта и Игры — развлечения, открываются кнопками по бокам базы. */
 export type Tab = 'tasks' | 'qr' | 'base' | 'prep' | 'shop' | 'squad' | 'map' | 'games';
-const SECONDARY: Tab[] = ['squad', 'map', 'games'];
+export const SECONDARY: Tab[] = ['squad', 'map', 'games'];
 
 /** Как часто отправлять накопленный вклад в ПБ и сохранять прогресс (мс). Меньше запросов — легче серверу. */
 const FLUSH_MS = 20000;
@@ -44,6 +44,9 @@ export class App {
   /** Голосование «Работа со спонсорами» (null — пока не загрузилось). */
   vote: VoteState | null = null;
   private voteTick = 0;
+  /** Режим блока: игры, карта и бой на паузе (сервер маленький) */
+  lite = false;
+  liteUntil = 0;
   notes: Note[] = [];
   private seenNotes = new Set<string>();
   private saveTimer = 0;
@@ -96,11 +99,13 @@ export class App {
       window.setInterval(() => this.flush(), FLUSH_MS);
       window.setInterval(() => this.refreshLive(), LIVE_MS);
       window.setInterval(() => this.refreshNotes(), NOTES_MS);
+      window.setInterval(() => this.refreshMode(), 45_000);
       // голосование: пока открыто — раз в 10 с, иначе раз в минуту (сервер маленький — бережём его)
       window.setInterval(() => { this.voteTick++; if ((this.vote?.status === 'open' && this.voteTick % 2 === 0) || this.voteTick % 12 === 0) this.refreshVote(); }, 5000);
       document.addEventListener('visibilitychange', () => { if (document.hidden) { this.flush(); this.saveNow(); } });
       window.addEventListener('pagehide', () => { this.flush(); this.saveNow(); });
     }
+    await this.refreshMode(true);
     await this.refreshClan();
     this.refreshLive();
     this.refreshVote();
@@ -134,6 +139,24 @@ export class App {
   async refreshClan() {
     const c = await this.backend.getClan(this.state).catch(() => null);
     if (c) { this.clan = c; setClanBonuses(c.bonuses); }
+  }
+
+  /** Режим блока: узнаём у сервера, на паузе ли игры. При смене — перерисовываем экран. */
+  async refreshMode(first = false) {
+    if (!this.state || (document.hidden && !first)) return;
+    const m = await this.backend.gameMode().catch(() => null);
+    if (!m) return;
+    const changed = m.lite !== this.lite;
+    this.lite = m.lite; this.liteUntil = m.until ?? 0;
+    if (changed && !first) {
+      if (this.lite && SECONDARY.includes(this.tab) && !this.backend.staff) this.tab = 'base';
+      this.render();
+      toast(this.lite ? 'Идёт блок — игры на паузе. Задания, QR и подготовка работают' : 'Игры снова открыты!', 'info');
+    }
+  }
+  liteText() {
+    const t = this.liteUntil ? new Date(this.liteUntil).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
+    return `Идёт блок${t ? ` до ${t}` : ''}: мини-игры, карта и бой на паузе. Работают задания, QR, подготовка и мерч.`;
   }
 
   async refreshVote() {
@@ -171,7 +194,7 @@ export class App {
   /** Отправляет накопленный вклад в здание ПБ (раз в несколько секунд, пачкой). */
   async flush() {
     const s = this.state;
-    if (!s || this.flushing || s.clicker.pendingXp <= 0 || !s.faction) return;
+    if (!s || this.flushing || s.clicker.pendingXp <= 0 || !s.faction || this.lite) return;
     this.flushing = true;
     const xp = s.clicker.pendingXp;
     s.clicker.pendingXp = 0;
@@ -221,6 +244,7 @@ export class App {
 
   go(tab: Tab) {
     if (this.tab === tab) return;
+    if (this.lite && SECONDARY.includes(tab) && !this.backend.staff) { toast(this.liteText(), 'info'); haptic('bad'); return; }
     haptic();
     this.tab = tab;
     this.render();

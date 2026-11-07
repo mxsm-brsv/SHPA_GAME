@@ -69,6 +69,9 @@ export interface Backend {
   logout(): Promise<void>;
   save(s: GameState): Promise<void>;
   config(): Promise<GameConfig>;
+  /** Режим блока: игры на паузе до until (мс). */
+  gameMode(): Promise<{ lite: boolean; until: number | null }>;
+  staffSetLite(minutes: number): Promise<{ lite: boolean; until: number | null }>;
   /** value — сколько рейтинга стоит результат (0..30 для мини-игры). Возвращает начисленное. */
   claimTask(s: GameState, task: string, payload?: TaskPayload): Promise<SubmitResult>;
   submitTask(s: GameState, task: string, payload: TaskPayload): Promise<SubmitResult>;

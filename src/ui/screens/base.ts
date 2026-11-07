@@ -52,9 +52,10 @@ export function renderBase(app: App) {
       <div class="xp"><i style="width:${Math.round(lvl.progress * 100)}%"></i></div>
       <button class="live-banner hidden" data-live data-act="live"></button>
       <button class="live-banner vote-banner hidden" data-vote data-act="vote"></button>
+      ${app.lite ? `<div class="lite-banner">${icon('clock', 16)}<span>${esc(app.liteText())}</span></div>` : ''}
     </div>
 
-    <div class="side l">
+    <div class="side l ${app.lite ? 'paused' : ''}">
       <button data-act="squad" aria-label="Отряд и бой"><div class="sq">${icon('sword', 24)}</div><span class="lbl">Бой</span></button>
       <button data-act="map" aria-label="Карта кампуса"><div class="sq">${icon('map', 24)}</div><span class="lbl">Карта</span></button>
       <button data-act="games" aria-label="Мини-игры"><div class="sq">${icon('gamepad', 24)}</div><span class="lbl">Игры</span></button>

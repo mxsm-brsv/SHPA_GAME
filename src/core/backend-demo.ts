@@ -494,6 +494,8 @@ export class DemoBackend implements Backend {
     return fresh;
   }
   private orders(): MerchOrder[] { return lsJson<MerchOrder[]>(LS_ORDERS, []); }
+  async gameMode() { const u = lsJson<number>('pbgame.lite', 0); return { lite: u > Date.now(), until: u > Date.now() ? u : null }; }
+  async staffSetLite(minutes: number) { lsSet('pbgame.lite', JSON.stringify(minutes > 0 ? Date.now() + minutes * 60000 : 0)); return this.gameMode(); }
   async merchList() { return this.items().filter((x) => x.active); }
   async wallet(s: GameState): Promise<Wallet> {
     const casino = lsJson<number>(LS_CASINO_PTS, 0);

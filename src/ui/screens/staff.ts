@@ -36,12 +36,29 @@ export function openStaff(app: App) {
     <div class="row"><button class="btn btn-ghost btn-sm" data-act="exit" aria-label="Назад">${icon('back', 18)}</button><h1 class="grow" style="font-size:24px">Организатор</h1>
       <button class="btn btn-gold btn-sm" data-act="screen">${icon('trophy', 16)} Экран</button></div>
     ${app.backend.mode === 'demo' ? '<div class="small muted">Демо: всё работает на твоём аккаунте и ботах — чтобы проверить весь путь до выезда.</div>' : ''}
+    <div class="card col lite-ctl" style="gap:8px"><div class="row" style="gap:8px"><b class="grow">Режим блока</b><span class="small" data-lstate>…</span></div>
+      <div class="small muted">На время блока ставь игры на паузу: мини-игры, карта, бой и рейды не грузят сервер. Задания, QR, подготовка, мерч и эфир работают. Пауза снимется сама.</div>
+      <div class="row" style="gap:6px;flex-wrap:wrap"><button class="btn btn-sm btn-gold" data-lite="45">Пауза 45 мин</button><button class="btn btn-sm btn-gold" data-lite="90">90 мин</button><button class="btn btn-sm btn-gold" data-lite="150">2,5 ч</button><button class="btn btn-sm btn-ghost" data-lite="0">Открыть игры</button></div></div>
     <div class="chips">${TABS.map(([k, n]) => `<button class="chip ${k === tab ? 'on' : ''}" data-act="tab" data-v="${k}">${n}</button>`).join('')}</div>
     <div data-body class="col" style="gap:10px"></div>
     <datalist id="reasons">${REASONS.map((r) => `<option value="${esc(r)}">`).join('')}</datalist>
   </div></div>`);
   const body = $(node, '[data-body]');
   let stopTimer = () => {};
+  const paintLite = (m: { lite: boolean; until: number | null }) => {
+    const t = m.until ? new Date(m.until).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
+    const st = node.querySelector<HTMLElement>('[data-lstate]');
+    if (st) { st.textContent = m.lite ? `игры на паузе до ${t}` : 'игры открыты'; st.className = `small ${m.lite ? 'gold' : 'muted'}`; }
+  };
+  app.backend.gameMode().then(paintLite).catch(() => {});
+  node.querySelectorAll<HTMLButtonElement>('[data-lite]').forEach((b) => b.addEventListener('click', async () => {
+    const min = Number(b.dataset.lite);
+    try {
+      const m = await app.backend.staffSetLite(min);
+      paintLite(m); app.lite = m.lite; app.liteUntil = m.until ?? 0;
+      toast(m.lite ? 'Пауза включена — участники увидят это в эфире' : 'Игры открыты', 'ok'); haptic('ok');
+    } catch (e) { toast((e as Error).message, 'bad'); }
+  }));
 
   // ---------- Команда: кто на какой зоне ----------
   const drawTeam = async () => {
